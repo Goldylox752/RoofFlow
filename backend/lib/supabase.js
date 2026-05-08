@@ -8,20 +8,18 @@ if (!url || !key) {
 }
 
 /* ===============================
-   HARD DISABLE REALTIME (CRITICAL FIX)
+   REST-ONLY CLIENT (NO REALTIME)
 =============================== */
 const supabase = createClient(url, key, {
-  db: {
-    schema: "public",
-  },
   auth: {
     persistSession: false,
     autoRefreshToken: false,
     detectSessionInUrl: false,
   },
-  realtime: {
-    enabled: false,
-    transport: undefined, // 🔥 forces NO websocket init
+  global: {
+    headers: {
+      "X-Client-Info": "flow-os-backend",
+    },
   },
 });
 
