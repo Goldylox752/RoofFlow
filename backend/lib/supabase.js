@@ -8,17 +8,20 @@ if (!url || !key) {
 }
 
 /* ===============================
-   DISABLE REALTIME COMPLETELY
-   (Fixes Node 20 WebSocket crash)
+   HARD DISABLE REALTIME (CRITICAL FIX)
 =============================== */
 const supabase = createClient(url, key, {
+  db: {
+    schema: "public",
+  },
   auth: {
     persistSession: false,
+    autoRefreshToken: false,
+    detectSessionInUrl: false,
   },
   realtime: {
-    params: {
-      eventsPerSecond: 0,
-    },
+    enabled: false,
+    transport: undefined, // 🔥 forces NO websocket init
   },
 });
 
