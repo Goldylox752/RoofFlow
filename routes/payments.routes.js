@@ -7,8 +7,15 @@ const supabase = require("../lib/supabase");
 =============================== */
 router.post("/checkout", async (req, res) => {
   try {
-    const { email, name, plan = "starter" } = req.body;
+    const {
+      email,
+      name = "Guest User",
+      plan = "starter",
+    } = req.body || {};
 
+    // ===============================
+    // VALIDATION
+    // ===============================
     if (!email) {
       return res.status(400).json({
         success: false,
@@ -16,40 +23,95 @@ router.post("/checkout", async (req, res) => {
       });
     }
 
-    // Simple pricing map (adjust later)
+    const cleanEmail = email
+      .toLowerCase()
+      .trim();
+
+    const emailRegex =
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    if (!emailRegex.test(cleanEmail)) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid email",
+      });
+    }
+
+    // ===============================
+    // PRICE MAP
+    // Amounts are in cents
+    // ===============================
     const amountMap = {
       starter: 100,
       pro: 200,
     };
 
-    const amount = amountMap[plan] || 100;
+    const amount =
+      amountMap[plan] || amountMap.starter;
 
-    const session = await stripe.checkout.sessions.create({
-      mode: "payment",
-      customer_email: email,
+    // ===============================
+    // CREATE STRIPE SESSION
+    // ===============================
+    const session =
+      await stripe.checkout.sessions.create({
+        mode: "payment",
 
-      line_items: [
-        {
-          price_data: {
-            currency: "usd",
-            product_data: {
-              name: `Flow OS - ${plan}`,
-              description: "Automated lead system access",
+        customer_email: cleanEmail,
+
+        payment_method_types: ["card"],
+
+        line_items: [
+          {
+            price_data: {
+              currency: "usd",
+
+              product_data: {
+                name: `Flow OS - ${plan}`,
+                description:
+                  "Automated lead system access",
+              },
+
+              unit_amount: amount,
             },
-            unit_amount: amount,
+
+            quantity: 1,
           },
-          quantity: 1,
+        ],
+
+        metadata: {
+          email: cleanEmail,
+          name,
+          plan,
         },
-      ],
 
-      success_url: `${process.env.FRONTEND_URL}/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${process.env.FRONTEND_URL}/cancel`,
+        success_url:
+          `${process.env.FRONTEND_URL}/success?session_id={CHECKOUT_SESSION_ID}`,
 
-      metadata: {
-        email,
-        plan,
-      },
-    });
+        cancel_url:
+          `${process.env.FRONTEND_URL}/cancel`,
+      });
+
+    // ===============================
+    // OPTIONAL LEAD UPSERT
+    // ===============================
+    try {
+      await supabase
+        .from("leads")
+        .upsert([
+          {
+            email: cleanEmail,
+            name,
+            plan,
+            paid: false,
+            status: "pending",
+          },
+        ]);
+    } catch (dbErr) {
+      console.error(
+        "Supabase save warning:",
+        dbErr.message
+      );
+    }
 
     return res.json({
       success: true,
@@ -57,11 +119,15 @@ router.post("/checkout", async (req, res) => {
     });
 
   } catch (err) {
-    console.error("Checkout error:", err);
+    console.error(
+      "Checkout error:",
+      err
+    );
 
     return res.status(500).json({
       success: false,
-      error: "checkout_failed",
+      error:
+        err?.message || "checkout_failed",
     });
   }
 });
@@ -81,9 +147,16 @@ router.get("/verify", async (req, res) => {
       });
     }
 
-    const session = await stripe.checkout.sessions.retrieve(session_id);
+    // ===============================
+    // GET SESSION
+    // ===============================
+    const session =
+      await stripe.checkout.sessions.retrieve(
+        session_id
+      );
 
-    const paid = session.payment_status === "paid";
+    const paid =
+      session.payment_status === "paid";
 
     if (!paid) {
       return res.json({
@@ -92,7 +165,10 @@ router.get("/verify", async (req, res) => {
       });
     }
 
-    const email = session.customer_details?.email || session.customer_email;
+    const email =
+      session.customer_details?.email ||
+      session.customer_email ||
+      session.metadata?.email;
 
     if (email) {
       await supabase
@@ -100,9 +176,13 @@ router.get("/verify", async (req, res) => {
         .update({
           paid: true,
           status: "paid",
-          activated_at: new Date().toISOString(),
+          activated_at:
+            new Date().toISOString(),
         })
-        .eq("email", email.toLowerCase().trim());
+        .eq(
+          "email",
+          email.toLowerCase().trim()
+        );
     }
 
     return res.json({
@@ -112,12 +192,17 @@ router.get("/verify", async (req, res) => {
     });
 
   } catch (err) {
-    console.error("Verify error:", err);
+    console.error(
+      "Verify error:",
+      err
+    );
 
     return res.status(500).json({
       success: false,
       paid: false,
-      error: "verification_failed",
+      error:
+        err?.message ||
+        "verification_failed",
     });
   }
 });
