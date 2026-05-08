@@ -1,4 +1,5 @@
 const { createClient } = require("@supabase/supabase-js");
+const ws = require("ws");
 
 const url = process.env.SUPABASE_URL;
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -8,7 +9,7 @@ if (!url || !key) {
 }
 
 /* ===============================
-   REST-ONLY CLIENT (NO REALTIME)
+   FORCE NODE WEBSOCKET SUPPORT
 =============================== */
 const supabase = createClient(url, key, {
   auth: {
@@ -18,13 +19,8 @@ const supabase = createClient(url, key, {
   },
 
   realtime: {
-    enabled: false,   // 🔥 THIS IS THE KEY FIX
-  },
-
-  global: {
-    headers: {
-      "X-Client-Info": "flow-os-backend",
-    },
+    enabled: false,
+    transport: ws, // 🔥 THIS STOPS THE CRASH
   },
 });
 
