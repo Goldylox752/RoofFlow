@@ -1,77 +1,143 @@
 "use client";
 
-import { createClient } from "@supabase/supabase-js";
+import { useState } from "react";
 
-// ===============================
-// INIT (SAFE + SINGLETON)
-// ===============================
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+type FormState = {
+  name: string;
+  email: string;
+  city: string;
+};
 
-// prevent multiple clients in dev/hot reload
-let supabase = globalThis.__supabase;
+export default function Home() {
+  const [loading, setLoading] = useState(false);
 
-if (!supabase && supabaseUrl && supabaseKey) {
-  supabase = createClient(supabaseUrl, supabaseKey);
-  globalThis.__supabase = supabase;
-}
+  const [form, setForm] = useState<FormState>({
+    name: "",
+    email: "",
+    city: "Calgary",
+  });
 
-if (!supabase) {
-  console.warn("⚠️ Supabase not initialized (missing env vars)");
-}
+  const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
-// ===============================
-// LOAD INITIAL QUEUE
-// ===============================
-export async function loadInitialQueue(org_id) {
-  if (!supabase) return [];
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setForm((prev) => ({
+      ...prev,
+      [e.target.name]: e.target.value,
+    }));
+  };
 
-  try {
-    const { data, error } = await supabase
-      .from("leads")
-      .select("*")
-      .eq("org_id", org_id)
-      .eq("status", "new")
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      console.error("Queue load error:", error.message);
-      return [];
+  const handleCheckout = async () => {
+    if (!API_URL) {
+      alert("System error. Try again later.");
+      return;
     }
 
-    return data ?? [];
-  } catch (err) {
-    console.error("Queue crash:", err);
-    return [];
-  }
-}
+    if (!form.name || !form.email) {
+      alert("Please enter your name and email");
+      return;
+    }
 
-// ===============================
-// REALTIME SUBSCRIBE
-// ===============================
-export function subscribeToQueue(org_id, callback) {
-  if (!supabase) return null;
+    try {
+      setLoading(true);
 
-  const channel = supabase.channel(`queue_updates_${org_id}`);
+      const res = await fetch(`${API_URL}/api/leads`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: form.name,
+          email: form.email,
+          city: form.city,
+          phone: null,
+        }),
+      });
 
-  channel
-    .on("broadcast", { event: "lead_assigned" }, (payload) => {
-      const data = payload?.payload;
-      if (data?.org_id === org_id) callback(data);
-    })
-    .on("broadcast", { event: "lead_updated" }, (payload) => {
-      const data = payload?.payload;
-      if (data?.org_id === org_id) callback(data);
-    })
-    .subscribe();
+      const data = await res.json();
 
-  return channel;
-}
+      if (!res.ok || !data?.checkoutUrl || !data?.lead?.id) {
+        console.error("Checkout failed:", data);
+        alert(data?.error || "Checkout failed");
+        return;
+      }
 
-// ===============================
-// CLEANUP
-// ===============================
-export function unsubscribeQueue(channel) {
-  if (!supabase || !channel) return;
-  supabase.removeChannel(channel);
+      if (typeof window !== "undefined") {
+        localStorage.setItem("leadId", data.lead.id);
+        window.location.href = data.checkoutUrl;
+      }
+    } catch (err) {
+      console.error("Checkout error:", err);
+      alert("Error starting checkout");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div style={{ background: "#0b0f19", color: "white", minHeight: "100vh" }}>
+      {/* HERO */}
+      <section style={{ padding: "110px 20px", textAlign: "center" }}>
+        <h1 style={{ fontSize: 54, maxWidth: 900, margin: "0 auto" }}>
+          Get High-Intent Roofing & HVAC Customers Without Paying for Ads
+        </h1>
+
+        <p style={{ fontSize: 18, color: "#cbd5e1", maxWidth: 750, margin: "20px auto" }}>
+          NorthSky Flow OS automatically finds, filters, and delivers{" "}
+          <b>ready-to-buy customers</b> directly to your business.
+        </p>
+
+        <div style={{ color: "#94a3b8", marginTop: 10 }}>
+          ⚡ Setup in under 5 minutes • 💰 Pay only for real leads • 🔒 No contracts
+        </div>
+
+        {/* FORM */}
+        <div
+          style={{
+            marginTop: 35,
+            display: "grid",
+            gap: 12,
+            maxWidth: 420,
+            marginInline: "auto",
+          }}
+        >
+          <input
+            name="name"
+            placeholder="Your Name"
+            value={form.name}
+            onChange={handleChange}
+            style={{ padding: 14, borderRadius: 8 }}
+          />
+
+          <input
+            name="email"
+            placeholder="Email Address"
+            value={form.email}
+            onChange={handleChange}
+            style={{ padding: 14, borderRadius: 8 }}
+          />
+
+          <button
+            onClick={handleCheckout}
+            disabled={loading}
+            style={{
+              padding: "16px 32px",
+              fontSize: 18,
+              background: loading ? "#64748b" : "#22c55e",
+              border: "none",
+              borderRadius: 10,
+              cursor: "pointer",
+              fontWeight: "bold",
+              marginTop: 8,
+            }}
+          >
+            {loading ? "Securing Leads..." : "Start Getting Leads Now"}
+          </button>
+
+          <p style={{ fontSize: 12, color: "#94a3b8" }}>
+            No setup fees • Cancel anytime • Instant activation
+          </p>
+        </div>
+      </section>
+    </div>
+  );
 }
