@@ -8,13 +8,16 @@ if (!url || !key) {
 }
 
 /* ===============================
-   SIMPLE SERVER CLIENT (NO REALTIME)
+   SAFE REST CLIENT (NO REALTIME)
 =============================== */
 const supabase = createClient(url, key, {
   auth: {
     persistSession: false,
     autoRefreshToken: false,
     detectSessionInUrl: false,
+  },
+  realtime: {
+    enabled: false,
   },
 });
 
