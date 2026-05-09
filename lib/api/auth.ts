@@ -1,44 +1,69 @@
-import { safeFetch } from "./client";
+"use client";
+
+import { useEffect, useState } from "react";
+import * as authAPI from "@/lib/api/auth";
 
 /* ===============================
-   SIGNUP
+   AUTH HOOK
 =============================== */
-export async function signup(payload: {
-  email: string;
-  password?: string;
-  name?: string;
-}) {
-  return safeFetch("/api/auth/signup", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-}
+export function useAuth() {
+  const [user, setUser] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+/* ===============================
+   LOAD CURRENT USER
+=============================== */
+  const loadUser = async () => {
+    try {
+      const res = await authAPI.getMe();
+      setUser(res?.user || null);
+    } catch {
+      setUser(null);
+    } finally {
+      setLoading(false);
+    }
+  };
 
 /* ===============================
    LOGIN
 =============================== */
-export async function login(payload: {
-  email: string;
-  password?: string;
-}) {
-  return safeFetch("/api/auth/login", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-}
+  const login = async (email: string, password?: string) => {
+    const res = await authAPI.login({ email, password });
+    await loadUser();
+    return res;
+  };
+
+/* ===============================
+   SIGNUP
+=============================== */
+  const signup = async (email: string, password?: string, name?: string) => {
+    const res = await authAPI.signup({ email, password, name });
+    await loadUser();
+    return res;
+  };
 
 /* ===============================
    LOGOUT
 =============================== */
-export async function logout() {
-  return safeFetch("/api/auth/logout", {
-    method: "POST",
-  });
-}
+  const logout = async () => {
+    await authAPI.logout();
+    setUser(null);
+  };
 
 /* ===============================
-   GET CURRENT USER
+   INIT
 =============================== */
-export async function getMe() {
-  return safeFetch("/api/auth/me");
+  useEffect(() => {
+    loadUser();
+  }, []);
+
+  return {
+    user,
+    loading,
+    isAuthenticated: !!user,
+    login,
+    signup,
+    logout,
+    refresh: loadUser,
+  };
 }
