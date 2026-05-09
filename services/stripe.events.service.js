@@ -6,10 +6,25 @@ const supabase = createClient(
 );
 
 /* ===============================
-   STRIPE WEBHOOK HANDLER
-   (AUTH-ID BASED + IDEMPOTENT)
+   SAFE EVENT HANDLER
 =============================== */
 async function handleEvent(event) {
+  const eventId = event.id;
+
+  /* ===============================
+     IDEMPOTENCY CHECK (CRITICAL FIX)
+  =============================== */
+  const { data: existing } = await supabase
+    .from("billing_events")
+    .select("stripe_event_id")
+    .eq("stripe_event_id", eventId)
+    .maybeSingle();
+
+  if (existing) {
+    console.log("Duplicate event ignored:", eventId);
+    return;
+  }
+
   switch (event.type) {
 
     /* ===============================
@@ -27,10 +42,7 @@ async function handleEvent(event) {
         throw new Error("Missing auth_id in metadata");
       }
 
-      /* ===============================
-         UPSERT SUBSCRIPTION (AUTH BASED)
-      =============================== */
-      const { error } = await supabase
+      await supabase
         .from("subscriptions")
         .upsert(
           {
@@ -45,13 +57,8 @@ async function handleEvent(event) {
           { onConflict: "auth_id" }
         );
 
-      if (error) throw error;
-
-      /* ===============================
-         IDEMPOTENT EVENT LOG
-      =============================== */
-      await supabase.from("billing_events").upsert({
-        stripe_event_id: event.id,
+      await supabase.from("billing_events").insert({
+        stripe_event_id: eventId,
         type: "checkout.completed",
         auth_id: authId,
         payload: session,
@@ -61,16 +68,27 @@ async function handleEvent(event) {
     }
 
     /* ===============================
-       SUBSCRIPTION UPDATED
+       SUBSCRIPTION UPDATED (FIXED STATES)
     =============================== */
     case "customer.subscription.updated": {
       const sub = event.data.object;
 
+      const status =
+        sub.status === "active"
+          ? "active"
+          : sub.status === "trialing"
+          ? "trialing"
+          : sub.status === "past_due"
+          ? "past_due"
+          : sub.status === "unpaid"
+          ? "unpaid"
+          : "canceled";
+
       await supabase
         .from("subscriptions")
         .update({
-          status: sub.status,
-          active: sub.status === "active",
+          status,
+          active: status === "active" || status === "trialing",
           updated_at: new Date().toISOString(),
         })
         .eq("stripe_customer_id", sub.customer);
@@ -99,6 +117,15 @@ async function handleEvent(event) {
     default:
       console.log("Unhandled event:", event.type);
   }
+
+  /* ===============================
+     LOG EVENT AFTER PROCESSING
+  =============================== */
+  await supabase.from("billing_events").insert({
+    stripe_event_id: eventId,
+    type: event.type,
+    payload: event.data.object,
+  });
 }
 
 module.exports = { handleEvent };
