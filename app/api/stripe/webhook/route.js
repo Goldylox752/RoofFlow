@@ -3,142 +3,309 @@ const router = express.Router();
 const Stripe = require("stripe");
 const { createClient } = require("@supabase/supabase-js");
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+/* =========================
+   ENV VALIDATION
+========================= */
+
+const required = [
+  "STRIPE_SECRET_KEY",
+  "STRIPE_WEBHOOK_SECRET",
+  "SUPABASE_URL",
+  "SUPABASE_SERVICE_ROLE_KEY",
+];
+
+for (const key of required) {
+  if (!process.env[key]) {
+    throw new Error(
+      `Missing environment variable: ${key}`
+    );
+  }
+}
+
+/* =========================
+   STRIPE
+========================= */
+
+const stripe = new Stripe(
+  process.env.STRIPE_SECRET_KEY,
+  {
+    apiVersion: "2024-06-20",
+  }
+);
+
+/* =========================
+   SUPABASE
+========================= */
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-async function handleEvent(event) {
-  if (event.type !== "checkout.session.completed") return;
+/* =========================
+   HANDLE EVENTS
+========================= */
 
-  const session = event.data.object;
+async function handleCheckoutCompleted(
+  session
+) {
+  const leadId =
+    session.metadata?.leadId;
 
-  const leadId = session.metadata?.leadId;
-  const plan = session.metadata?.plan;
+  const plan =
+    session.metadata?.plan;
 
   if (!leadId || !plan) {
-    throw new Error("Missing leadId or plan in metadata");
+    throw new Error(
+      "Missing metadata"
+    );
   }
 
-  const stripeCustomerId = session.customer || null;
-  const email = session.customer_details?.email || null;
+  const stripeCustomerId =
+    session.customer || null;
 
-  if (!session.amount_total) {
-    throw new Error("Missing amount_total");
-  }
+  const customerEmail =
+    session.customer_details
+      ?.email || null;
 
-  const amount = session.amount_total / 100;
+  const amount =
+    (session.amount_total || 0) /
+    100;
 
-  // =========================
-  // UPDATE LEAD
-  // =========================
-  const { error: leadError } = await supabase
+  /* =========================
+     UPDATE LEAD
+  ========================= */
+
+  const {
+    error: leadError,
+  } = await supabase
     .from("leads")
     .update({
       paid: true,
-      plan,
       status: "paid",
-      stripe_customer_id: stripeCustomerId,
+      plan,
+      customer_email:
+        customerEmail,
+      stripe_customer_id:
+        stripeCustomerId,
+      updated_at:
+        new Date().toISOString(),
     })
     .eq("id", leadId.trim());
 
-  if (leadError) throw leadError;
+  if (leadError) {
+    throw leadError;
+  }
 
-  // =========================
-  // PAYMENT RECORD
-  // =========================
-  const { error: paymentError } = await supabase
+  /* =========================
+     SAVE PAYMENT
+  ========================= */
+
+  const {
+    error: paymentError,
+  } = await supabase
     .from("payments")
     .upsert(
       {
         id: session.id,
+
         lead_id: leadId,
-        stripe_customer_id: stripeCustomerId,
+
+        stripe_customer_id:
+          stripeCustomerId,
+
+        customer_email:
+          customerEmail,
+
         amount,
-        currency: session.currency || "usd",
+
+        currency:
+          session.currency ||
+          "usd",
+
         status: "paid",
-        created_at: new Date().toISOString(),
+
+        created_at:
+          new Date().toISOString(),
       },
-      { onConflict: "id" }
+      {
+        onConflict: "id",
+      }
     );
 
-  if (paymentError) throw paymentError;
+  if (paymentError) {
+    throw paymentError;
+  }
 }
+
+/* =========================
+   MAIN HANDLER
+========================= */
+
+async function processEvent(event) {
+  switch (event.type) {
+    case "checkout.session.completed":
+      await handleCheckoutCompleted(
+        event.data.object
+      );
+      break;
+
+    default:
+      console.log(
+        `Unhandled event: ${event.type}`
+      );
+  }
+}
+
+/* =========================
+   WEBHOOK ROUTE
+========================= */
 
 router.post(
   "/",
-  express.raw({ type: "application/json" }),
+
+  express.raw({
+    type: "application/json",
+  }),
+
   async (req, res) => {
     let event;
 
     try {
-      const sig = req.headers["stripe-signature"];
+      const signature =
+        req.headers[
+          "stripe-signature"
+        ];
 
-      if (!sig) {
-        return res.status(400).json({
-          error: "Missing Stripe signature",
-        });
+      if (!signature) {
+        return res
+          .status(400)
+          .json({
+            error:
+              "Missing Stripe signature",
+          });
       }
 
-      event = stripe.webhooks.constructEvent(
-        req.body,
-        sig,
-        process.env.STRIPE_WEBHOOK_SECRET
+      /* =========================
+         VERIFY STRIPE EVENT
+      ========================= */
+
+      event =
+        stripe.webhooks.constructEvent(
+          req.body,
+          signature,
+          process.env
+            .STRIPE_WEBHOOK_SECRET
+        );
+
+      console.log(
+        `Received Stripe event: ${event.type}`
       );
 
-      // =========================
-      // IDEMPOTENCY CHECK
-      // =========================
-      const { data: existing } = await supabase
+      /* =========================
+         IDEMPOTENCY CHECK
+      ========================= */
+
+      const {
+        data: existingEvent,
+      } = await supabase
         .from("stripe_events")
         .select("status")
         .eq("id", event.id)
         .single();
 
-      if (existing?.status === "completed") {
+      if (
+        existingEvent?.status ===
+        "completed"
+      ) {
+        console.log(
+          `Skipping duplicate event: ${event.id}`
+        );
+
         return res.json({
           received: true,
-          skipped: true,
+          duplicate: true,
         });
       }
 
-      await supabase.from("stripe_events").upsert({
-        id: event.id,
-        type: event.type,
-        status: "processing",
-        created_at: new Date().toISOString(),
-      });
+      /* =========================
+         SAVE PROCESSING EVENT
+      ========================= */
 
-      await handleEvent(event);
+      await supabase
+        .from("stripe_events")
+        .upsert({
+          id: event.id,
+
+          type: event.type,
+
+          status: "processing",
+
+          created_at:
+            new Date().toISOString(),
+        });
+
+      /* =========================
+         PROCESS EVENT
+      ========================= */
+
+      await processEvent(event);
+
+      /* =========================
+         MARK COMPLETED
+      ========================= */
 
       await supabase
         .from("stripe_events")
         .update({
           status: "completed",
-          processed_at: new Date().toISOString(),
+
+          processed_at:
+            new Date().toISOString(),
         })
         .eq("id", event.id);
 
-      return res.json({ received: true });
+      console.log(
+        `Processed event: ${event.id}`
+      );
+
+      return res.json({
+        received: true,
+      });
 
     } catch (err) {
-      console.error("Webhook error:", err);
+      console.error(
+        "Webhook Error:",
+        err
+      );
+
+      /* =========================
+         MARK FAILED
+      ========================= */
 
       if (event?.id) {
         await supabase
           .from("stripe_events")
           .update({
             status: "failed",
-            error: err.message,
+
+            error:
+              err.message,
+
+            failed_at:
+              new Date().toISOString(),
           })
           .eq("id", event.id);
       }
 
-      return res.status(500).json({
-        error: "Webhook failed",
-      });
+      return res
+        .status(500)
+        .json({
+          success: false,
+          error:
+            err.message ||
+            "Webhook failed",
+        });
     }
   }
 );
