@@ -1,37 +1,63 @@
 const stripe = require("../../lib/stripe");
 const supabase = require("../../lib/supabase");
 
-exports.createStripeCustomer = async (user) => {
-  const { id, email } = user;
+/* ===============================
+   GET OR CREATE STRIPE CUSTOMER
+   (AUTH-BASED SINGLE SOURCE OF TRUTH)
+=============================== */
+exports.getOrCreateStripeCustomer = async (user) => {
+  const { id: authId, email } = user;
 
-  if (!id || !email) return;
+  if (!authId || !email) {
+    throw new Error("Missing auth user data");
+  }
 
-  // check if already exists
-  const { data: existing } = await supabase
+  /* ===============================
+     1. CHECK EXISTING CUSTOMER
+  =============================== */
+  const { data: existing, error } = await supabase
     .from("users")
     .select("stripe_customer_id")
-    .eq("auth_id", id)
+    .eq("auth_id", authId)
     .maybeSingle();
+
+  if (error) {
+    throw new Error("Database error while fetching user");
+  }
 
   if (existing?.stripe_customer_id) {
     return existing.stripe_customer_id;
   }
 
-  // create Stripe customer
+  /* ===============================
+     2. CREATE STRIPE CUSTOMER
+  =============================== */
   const customer = await stripe.customers.create({
     email,
     metadata: {
-      auth_id: id,
+      auth_id: authId,
     },
   });
 
-  // store in DB
-  await supabase.from("users").upsert({
-    auth_id: id,
-    email,
-    stripe_customer_id: customer.id,
-    status: "active",
-  });
+  if (!customer?.id) {
+    throw new Error("Failed to create Stripe customer");
+  }
+
+  /* ===============================
+     3. SAVE TO DATABASE
+  =============================== */
+  const { error: updateError } = await supabase
+    .from("users")
+    .update({
+      stripe_customer_id: customer.id,
+      status: "active",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("auth_id", authId);
+
+  if (updateError) {
+    throw new Error("Failed to save Stripe customer mapping");
+  }
 
   return customer.id;
 };
