@@ -1,58 +1,39 @@
 const crypto = require("crypto");
 const stripe = require("../lib/stripe");
-const supabase = require("../lib/supabase");
+const { getOrCreateStripeCustomer } = require("../services/stripe/customer.service");
 
 /* ===============================
-   VALIDATE STRIPE INSTANCE
+   PRICING (SERVER-TRUSTED)
 =============================== */
-if (!stripe || typeof stripe.checkout?.sessions?.create !== "function") {
-  throw new Error("Invalid Stripe instance in ../lib/stripe");
-}
+const PRICES = {
+  starter: 1000,
+  growth: 2000,
+  elite: 5000,
+};
 
 /* ===============================
    CREATE CHECKOUT SESSION (AUTH-BASED)
 =============================== */
-async function createCheckoutSession(params) {
-  const {
-    user,        // ✅ from auth middleware
-    plan = "starter",
-  } = params || {};
-
+async function createCheckoutSession({ authId, plan = "starter" }) {
   try {
-    /* ===============================
-       VALIDATION
-    =============================== */
-    if (!user?.id) throw new Error("Missing auth user");
-
-    const { data } = await supabase
-      .from("users")
-      .select("stripe_customer_id")
-      .eq("auth_id", user.id)
-      .maybeSingle();
-
-    if (!data?.stripe_customer_id) {
-      throw new Error("Stripe customer not linked");
-    }
-
-    /* ===============================
-       PLAN PRICING (SERVER TRUSTED)
-    =============================== */
-    const PRICES = {
-      starter: 1000,
-      growth: 2000,
-      elite: 5000,
-    };
+    if (!authId) throw new Error("Missing auth_id");
 
     const amount = PRICES[plan];
-
     if (!amount) throw new Error("Invalid plan");
+
+    /* ===============================
+       RESOLVE STRIPE CUSTOMER (NO DB DUPLICATION)
+    =============================== */
+    const customerId = await getOrCreateStripeCustomer({
+      id: authId,
+    });
 
     /* ===============================
        IDEMPOTENCY KEY
     =============================== */
     const idempotencyKey = crypto
       .createHash("sha256")
-      .update(`${user.id}:${plan}:${amount}`)
+      .update(`${authId}:${plan}:${amount}`)
       .digest("hex");
 
     /* ===============================
@@ -62,7 +43,7 @@ async function createCheckoutSession(params) {
       {
         mode: "payment",
 
-        customer: data.stripe_customer_id,
+        customer: customerId,
 
         line_items: [
           {
@@ -78,7 +59,7 @@ async function createCheckoutSession(params) {
         ],
 
         metadata: {
-          auth_id: user.id,
+          auth_id: authId,
           plan,
         },
 
@@ -102,7 +83,7 @@ async function createCheckoutSession(params) {
   } catch (err) {
     console.error("❌ Checkout Error:", {
       message: err.message,
-      userId: user?.id,
+      authId,
       plan,
     });
 
