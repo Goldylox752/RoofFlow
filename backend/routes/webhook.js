@@ -5,7 +5,7 @@ const stripe = require("../lib/stripe");
 const supabase = require("../lib/supabase");
 
 /* ===============================
-   STRIPE WEBHOOK
+   STRIPE WEBHOOK (RAW BODY REQUIRED)
 =============================== */
 router.post(
   "/",
@@ -24,7 +24,7 @@ router.post(
       }
 
       /* ===============================
-         VERIFY EVENT
+         VERIFY STRIPE EVENT
       =============================== */
       event = stripe.webhooks.constructEvent(
         req.body,
@@ -32,48 +32,71 @@ router.post(
         process.env.STRIPE_WEBHOOK_SECRET
       );
 
-      console.log("[Stripe Webhook]", event.type);
+      console.log("Stripe event:", event.type);
 
       /* ===============================
-         HANDLE SUCCESS PAYMENT
+         HANDLE PAYMENT SUCCESS
       =============================== */
       if (event.type === "checkout.session.completed") {
         const session = event.data.object;
 
-        const leadId = session.metadata?.leadId;
+        const email =
+          session.customer_details?.email ||
+          session.customer_email ||
+          session.metadata?.email;
 
-        if (!leadId) {
-          console.error("Missing leadId in metadata");
+        const name = session.metadata?.name || "Unknown";
+        const plan = session.metadata?.plan || "starter";
+
+        if (!email) {
+          console.error("Missing email in session");
           return res.status(400).json({
             success: false,
-            error: "Missing leadId",
+            error: "Missing email",
           });
         }
 
+        const cleanEmail = email.toLowerCase().trim();
+
         /* ===============================
-           UPDATE SUPABASE LEAD
+           UPSERT USER (SAFE PATTERN)
         =============================== */
         const { error } = await supabase
           .from("leads")
-          .update({
-            paid: true,
-            status: "paid",
-            activated_at: new Date().toISOString(),
-          })
-          .eq("id", leadId);
+          .upsert(
+            [
+              {
+                email: cleanEmail,
+                name,
+                plan,
+                paid: true,
+                status: "paid",
+                activated_at: new Date().toISOString(),
+                stripe_session_id: session.id,
+              },
+            ],
+            {
+              onConflict: "email",
+            }
+          );
 
         if (error) {
-          console.error("Supabase update error:", error);
+          console.error("Supabase error:", error);
           throw error;
         }
+
+        console.log("User activated:", cleanEmail);
       }
 
+      /* ===============================
+         ALWAYS ACKNOWLEDGE STRIPE
+      =============================== */
       return res.json({ received: true });
 
     } catch (err) {
-      console.error("Webhook error:", err);
+      console.error("Webhook failed:", err);
 
-      return res.status(500).json({
+      return res.status(400).json({
         success: false,
         error: "webhook_failed",
         message: err.message,
