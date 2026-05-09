@@ -1,19 +1,31 @@
-function calculatePrice(score, city) {
-  let base = 50;
+function calculatePrice(score, city = "") {
+  if (typeof score !== "number") {
+    throw new Error("Invalid score");
+  }
 
-  // score-based pricing
+  let base;
+
+  /* ===============================
+     SCORE TIERS
+  =============================== */
   if (score >= 80) base = 150;
   else if (score >= 60) base = 100;
   else base = 50;
 
-  // city adjustment (optional logic)
-  if (city === "Calgary") {
-    base += 10;
-  }
+  /* ===============================
+     CITY NORMALIZATION
+  =============================== */
+  const normalizedCity = city.trim().toLowerCase();
 
-  return base;
+  const cityMultipliers = {
+    calgary: 1.1,
+    edmonton: 1.05,
+    toronto: 1.2,
+  };
+
+  const multiplier = cityMultipliers[normalizedCity] || 1;
+
+  const finalPrice = Math.round(base * multiplier);
+
+  return Math.max(finalPrice, 0);
 }
-
-module.exports = {
-  calculatePrice,
-};
