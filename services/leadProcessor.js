@@ -1,7 +1,7 @@
 const supabase = require("../lib/supabase");
 
 /* ===============================
-   CREATE LEAD (SAFE + IDENTITY CLEAN)
+   CREATE LEAD (SAFE + DEDUPED)
 =============================== */
 async function createLead({
   name,
@@ -10,17 +10,36 @@ async function createLead({
   city,
   source = "web",
 }) {
-
   if (!email) throw new Error("Email required");
 
   const cleanEmail = email.trim().toLowerCase();
 
+  /* ===============================
+     CHECK DUPLICATES FIRST
+  =============================== */
+  const { data: existing } = await supabase
+    .from("leads")
+    .select("id")
+    .eq("email", cleanEmail)
+    .maybeSingle();
+
+  if (existing) {
+    return {
+      message: "Lead already exists",
+      id: existing.id,
+    };
+  }
+
+  /* ===============================
+     NORMALIZED PAYLOAD
+  =============================== */
   const payload = {
-    name,
+    name: name?.trim() || null,
     email: cleanEmail,
-    phone,
-    city,
+    phone: phone?.trim() || null,
+    city: city?.trim() || null,
     source,
+    created_at: new Date().toISOString(),
   };
 
   const { data, error } = await supabase
@@ -30,29 +49,13 @@ async function createLead({
     .single();
 
   if (error) {
-    console.error("Supabase insert error:", error);
-    throw error;
+    console.error("Supabase insert error:", {
+      message: error.message,
+      code: error.code,
+    });
+
+    throw new Error("Failed to create lead");
   }
 
   return data;
 }
-
-/* ===============================
-   GET LEADS (LATEST FIRST)
-=============================== */
-async function getLeads(limit = 50) {
-  const { data, error } = await supabase
-    .from("leads")
-    .select("*")
-    .order("created_at", { ascending: false })
-    .limit(limit);
-
-  if (error) throw error;
-
-  return data;
-}
-
-module.exports = {
-  createLead,
-  getLeads,
-};
