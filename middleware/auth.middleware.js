@@ -1,45 +1,64 @@
-const supabase = require("../lib/supabase");
+const { createClient } = require("@supabase/supabase-js");
 
 /* ===============================
-   AUTH MIDDLEWARE (HARDENED MVP)
+   SUPABASE CLIENT (NO SERVICE ROLE NEEDED FOR AUTH CHECK)
+=============================== */
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_ANON_KEY
+);
+
+/* ===============================
+   REAL AUTH MIDDLEWARE (JWT)
 =============================== */
 module.exports = async function auth(req, res, next) {
   try {
-    const email =
-      req.headers["x-user-email"];
+    const authHeader = req.headers.authorization;
 
-    if (!email || typeof email !== "string") {
+    if (!authHeader) {
       return res.status(401).json({
         success: false,
-        error: "Unauthorized",
+        error: "Missing Authorization header",
       });
     }
 
-    const cleanEmail = email.toLowerCase().trim();
+    const token = authHeader.replace("Bearer ", "").trim();
 
-    const { data, error } = await supabase
-      .from("users")
-      .select("id, email, stripe_customer_id, status")
-      .eq("email", cleanEmail)
-      .maybeSingle();
-
-    if (error || !data) {
+    if (!token) {
       return res.status(401).json({
         success: false,
-        error: "User not found",
+        error: "Missing token",
       });
     }
 
-    req.user = data;
+    /* ===============================
+       VERIFY JWT WITH SUPABASE
+    =============================== */
+    const { data, error } = await supabase.auth.getUser(token);
+
+    if (error || !data?.user) {
+      return res.status(401).json({
+        success: false,
+        error: "Invalid or expired token",
+      });
+    }
+
+    /* ===============================
+       ATTACH SECURE USER OBJECT
+    =============================== */
+    req.user = {
+      id: data.user.id,
+      email: data.user.email,
+    };
 
     next();
 
   } catch (err) {
     console.error("Auth error:", err);
 
-    return res.status(500).json({
+    return res.status(401).json({
       success: false,
-      error: "Auth middleware failed",
+      error: "Authentication failed",
     });
   }
 };
