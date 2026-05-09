@@ -5,46 +5,64 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
+/* ===============================
+   STRIPE WEBHOOK HANDLER
+   (AUTH-ID BASED + IDEMPOTENT)
+=============================== */
 async function handleEvent(event) {
   switch (event.type) {
 
+    /* ===============================
+       CHECKOUT COMPLETED
+    =============================== */
     case "checkout.session.completed": {
       const session = event.data.object;
 
-      const email = session.customer_details?.email;
+      const authId = session.metadata?.auth_id;
       const customerId = session.customer;
       const subscriptionId = session.subscription;
       const plan = session.metadata?.plan || "unknown";
 
-      if (!email) throw new Error("Missing email");
+      if (!authId) {
+        throw new Error("Missing auth_id in metadata");
+      }
 
-      const { data, error } = await supabase
+      /* ===============================
+         UPSERT SUBSCRIPTION (AUTH BASED)
+      =============================== */
+      const { error } = await supabase
         .from("subscriptions")
         .upsert(
           {
-            email,
+            auth_id: authId,
             stripe_customer_id: customerId,
             stripe_subscription_id: subscriptionId,
             plan,
             status: "active",
             active: true,
+            updated_at: new Date().toISOString(),
           },
-          { onConflict: "email" }
-        )
-        .select()
-        .single();
+          { onConflict: "auth_id" }
+        );
 
       if (error) throw error;
 
-      await supabase.from("billing_events").insert({
+      /* ===============================
+         IDEMPOTENT EVENT LOG
+      =============================== */
+      await supabase.from("billing_events").upsert({
+        stripe_event_id: event.id,
         type: "checkout.completed",
-        email,
+        auth_id: authId,
         payload: session,
       });
 
       break;
     }
 
+    /* ===============================
+       SUBSCRIPTION UPDATED
+    =============================== */
     case "customer.subscription.updated": {
       const sub = event.data.object;
 
@@ -53,12 +71,16 @@ async function handleEvent(event) {
         .update({
           status: sub.status,
           active: sub.status === "active",
+          updated_at: new Date().toISOString(),
         })
         .eq("stripe_customer_id", sub.customer);
 
       break;
     }
 
+    /* ===============================
+       SUBSCRIPTION DELETED
+    =============================== */
     case "customer.subscription.deleted": {
       const sub = event.data.object;
 
@@ -67,6 +89,7 @@ async function handleEvent(event) {
         .update({
           status: "canceled",
           active: false,
+          updated_at: new Date().toISOString(),
         })
         .eq("stripe_customer_id", sub.customer);
 
