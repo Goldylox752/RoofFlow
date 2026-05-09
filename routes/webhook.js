@@ -2,10 +2,13 @@ const express = require("express");
 const router = express.Router();
 
 const stripe = require("../lib/stripe");
+
 const handleInvoicePaid = require("../services/stripe/handleInvoicePaid");
+const handleCheckoutCompleted = require("../services/stripe/handleCheckoutCompleted");
+const handleSubscriptionUpdated = require("../services/stripe/handleSubscriptionUpdated");
 
 /* ===============================
-   WEBHOOK ROUTE
+   WEBHOOK ROUTE (PRODUCTION SAFE)
 =============================== */
 router.post(
   "/",
@@ -22,13 +25,31 @@ router.post(
         process.env.STRIPE_WEBHOOK_SECRET
       );
 
-      console.log("Stripe event:", event.type);
+      console.log("[Stripe Event]", event.type);
 
       /* ===============================
-         INVOICE PAID HANDLER
+         EVENT ROUTER
       =============================== */
-      if (event.type === "invoice.paid") {
-        await handleInvoicePaid(event.data.object);
+      switch (event.type) {
+
+        case "checkout.session.completed":
+          await handleCheckoutCompleted(event.data.object);
+          break;
+
+        case "invoice.paid":
+          await handleInvoicePaid(event.data.object);
+          break;
+
+        case "customer.subscription.updated":
+          await handleSubscriptionUpdated(event.data.object);
+          break;
+
+        case "customer.subscription.deleted":
+          await handleSubscriptionUpdated(event.data.object);
+          break;
+
+        default:
+          console.log("Unhandled event:", event.type);
       }
 
       return res.json({ received: true });
