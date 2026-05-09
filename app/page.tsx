@@ -2,89 +2,235 @@
 
 import { useEffect, useState } from "react";
 
+const API =
+  process.env.NEXT_PUBLIC_API_URL;
+
 export default function Home() {
   const [status, setStatus] = useState<any>(null);
+  const [loadingCheckout, setLoadingCheckout] =
+    useState(false);
 
+  /* =========================
+     HEALTH CHECK
+  ========================= */
   useEffect(() => {
-    fetch("https://your-backend.onrender.com/health")
+    if (!API) {
+      setStatus({
+        success: false,
+        message:
+          "Missing NEXT_PUBLIC_API_URL",
+      });
+      return;
+    }
+
+    fetch(`${API}/health`)
       .then((res) => res.json())
       .then((data) => setStatus(data))
-      .catch(() => setStatus({ success: false }));
+      .catch(() =>
+        setStatus({
+          success: false,
+          message: "Backend offline",
+        })
+      );
   }, []);
+
+  /* =========================
+     STRIPE CHECKOUT
+  ========================= */
+  const startCheckout = async () => {
+    try {
+      setLoadingCheckout(true);
+
+      const res = await fetch(
+        `${API}/api/checkout`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+          body: JSON.stringify({
+            plan: "pro",
+          }),
+        }
+      );
+
+      const data = await res.json();
+
+      if (!data?.url) {
+        throw new Error(
+          data?.error ||
+            "Failed to create checkout session"
+        );
+      }
+
+      window.location.href = data.url;
+    } catch (err: any) {
+      console.error(err);
+
+      alert(
+        err.message ||
+          "Checkout failed"
+      );
+    } finally {
+      setLoadingCheckout(false);
+    }
+  };
 
   return (
     <main style={styles.page}>
       
       {/* NAVBAR */}
       <header style={styles.nav}>
-        <div style={styles.logo}>Flow OS</div>
+        <div style={styles.logo}>
+          Flow OS
+        </div>
 
         <div style={styles.navRight}>
-          <a style={styles.link} href="#features">Features</a>
-          <a style={styles.link} href="#status">Status</a>
-          <a style={styles.buttonSmall} href="/dashboard">Dashboard</a>
+          <a
+            style={styles.link}
+            href="#features"
+          >
+            Features
+          </a>
+
+          <a
+            style={styles.link}
+            href="#status"
+          >
+            Status
+          </a>
+
+          <button
+            style={styles.buttonSmall}
+            onClick={startCheckout}
+          >
+            {loadingCheckout
+              ? "Loading..."
+              : "Start Free Trial"}
+          </button>
         </div>
       </header>
 
       {/* HERO */}
       <section style={styles.hero}>
         <h1 style={styles.title}>
-          The AI Backend Infrastructure for Modern Apps
+          The AI Backend Infrastructure
+          for Modern Apps
         </h1>
 
         <p style={styles.subtitle}>
-          Build faster with scalable APIs, authentication, and real-time system health — powered by Flow OS.
+          Build faster with scalable APIs,
+          authentication, Stripe billing,
+          and real-time backend monitoring.
         </p>
 
         <div style={styles.ctaRow}>
-          <a style={styles.primaryButton} href="/dashboard">
-            Launch Dashboard
-          </a>
-          <a style={styles.secondaryButton} href="#features">
+          <button
+            style={styles.primaryButton}
+            onClick={startCheckout}
+          >
+            {loadingCheckout
+              ? "Redirecting..."
+              : "Launch Platform"}
+          </button>
+
+          <a
+            style={styles.secondaryButton}
+            href="#features"
+          >
             Explore Features
           </a>
         </div>
       </section>
 
-      {/* STATUS CARD */}
-      <section id="status" style={styles.statusSection}>
+      {/* STATUS */}
+      <section
+        id="status"
+        style={styles.statusSection}
+      >
         <div style={styles.card}>
-          <h2 style={styles.cardTitle}>System Status</h2>
+          <h2 style={styles.cardTitle}>
+            System Status
+          </h2>
 
           {!status ? (
-            <p style={styles.muted}>Checking backend...</p>
+            <p style={styles.muted}>
+              Checking backend...
+            </p>
           ) : status.success ? (
             <>
-              <p style={styles.successText}>✅ {status.message}</p>
-              <p style={styles.muted}>Status: {status.status}</p>
+              <p style={styles.successText}>
+                ✅ {status.message}
+              </p>
+
+              <p style={styles.muted}>
+                Status: {status.status}
+              </p>
             </>
           ) : (
-            <p style={styles.errorText}>❌ Backend offline</p>
+            <>
+              <p style={styles.errorText}>
+                ❌ {status.message}
+              </p>
+
+              <p style={styles.muted}>
+                Check Render deployment
+              </p>
+            </>
           )}
         </div>
       </section>
 
       {/* FEATURES */}
-      <section id="features" style={styles.features}>
+      <section
+        id="features"
+        style={styles.features}
+      >
         <div style={styles.featureCard}>
-          <h3>⚡ Fast API Layer</h3>
-          <p>Built for scalable Node + Express backend deployments on Render.</p>
+          <h3>
+            ⚡ Fast API Layer
+          </h3>
+
+          <p>
+            Scalable Node.js +
+            Express backend
+            architecture deployed
+            on Render.
+          </p>
         </div>
 
         <div style={styles.featureCard}>
-          <h3>🔐 Secure Architecture</h3>
-          <p>Environment-based config with production-ready security patterns.</p>
+          <h3>
+            🔐 Secure Infrastructure
+          </h3>
+
+          <p>
+            Production-ready auth,
+            Stripe billing, and
+            environment-based config.
+          </p>
         </div>
 
         <div style={styles.featureCard}>
-          <h3>📡 Live System Health</h3>
-          <p>Real-time backend monitoring directly from your homepage.</p>
+          <h3>
+            📡 Live System Health
+          </h3>
+
+          <p>
+            Monitor backend uptime
+            and API performance in
+            real-time.
+          </p>
         </div>
       </section>
 
       {/* FOOTER */}
       <footer style={styles.footer}>
-        <p>Flow OS • Built for scalable backend systems</p>
+        <p>
+          Flow OS • AI Infrastructure
+          Platform
+        </p>
       </footer>
     </main>
   );
@@ -96,22 +242,27 @@ export default function Home() {
 
 const styles: any = {
   page: {
-    fontFamily: "Arial, sans-serif",
-    background: "#0b0f17",
+    fontFamily:
+      "Arial, sans-serif",
+    background:
+      "linear-gradient(to bottom, #0b0f17, #111827)",
     color: "#fff",
     minHeight: "100vh",
   },
 
   nav: {
     display: "flex",
-    justifyContent: "space-between",
+    justifyContent:
+      "space-between",
+    alignItems: "center",
     padding: "20px 40px",
-    borderBottom: "1px solid rgba(255,255,255,0.08)",
+    borderBottom:
+      "1px solid rgba(255,255,255,0.08)",
   },
 
   logo: {
     fontWeight: "bold",
-    fontSize: 18,
+    fontSize: 20,
     letterSpacing: 1,
   },
 
@@ -127,52 +278,62 @@ const styles: any = {
   },
 
   buttonSmall: {
-    padding: "8px 14px",
+    padding: "10px 16px",
     background: "#2563eb",
     borderRadius: 8,
     color: "#fff",
-    textDecoration: "none",
+    border: "none",
+    cursor: "pointer",
   },
 
   hero: {
     textAlign: "center",
-    padding: "100px 20px 60px",
+    padding:
+      "120px 20px 80px",
   },
 
   title: {
-    fontSize: 44,
-    fontWeight: 700,
-    maxWidth: 800,
+    fontSize: 52,
+    fontWeight: 800,
+    maxWidth: 900,
     margin: "0 auto",
+    lineHeight: 1.1,
   },
 
   subtitle: {
-    marginTop: 20,
-    fontSize: 18,
+    marginTop: 24,
+    fontSize: 20,
     color: "#aaa",
-    maxWidth: 600,
+    maxWidth: 700,
     marginLeft: "auto",
     marginRight: "auto",
+    lineHeight: 1.6,
   },
 
   ctaRow: {
-    marginTop: 30,
+    marginTop: 40,
     display: "flex",
-    gap: 15,
+    gap: 16,
     justifyContent: "center",
+    flexWrap: "wrap",
   },
 
   primaryButton: {
     background: "#2563eb",
-    padding: "12px 20px",
+    padding:
+      "14px 24px",
     borderRadius: 10,
     color: "#fff",
-    textDecoration: "none",
+    border: "none",
+    fontSize: 16,
+    cursor: "pointer",
   },
 
   secondaryButton: {
-    border: "1px solid #333",
-    padding: "12px 20px",
+    border:
+      "1px solid rgba(255,255,255,0.15)",
+    padding:
+      "14px 24px",
     borderRadius: 10,
     color: "#fff",
     textDecoration: "none",
@@ -180,54 +341,69 @@ const styles: any = {
 
   statusSection: {
     display: "flex",
-    justifyContent: "center",
-    padding: "40px 20px",
+    justifyContent:
+      "center",
+    padding:
+      "40px 20px 80px",
   },
 
   card: {
-    background: "#111827",
+    background:
+      "rgba(17,24,39,0.8)",
     padding: 30,
-    borderRadius: 14,
+    borderRadius: 16,
     width: "100%",
-    maxWidth: 500,
+    maxWidth: 520,
     textAlign: "center",
-    border: "1px solid rgba(255,255,255,0.08)",
+    border:
+      "1px solid rgba(255,255,255,0.08)",
+    backdropFilter:
+      "blur(10px)",
   },
 
   cardTitle: {
-    marginBottom: 10,
+    marginBottom: 16,
+    fontSize: 24,
   },
 
   successText: {
     color: "#22c55e",
+    fontSize: 18,
   },
 
   errorText: {
     color: "#ef4444",
+    fontSize: 18,
   },
 
   muted: {
-    color: "#aaa",
+    color: "#9ca3af",
+    marginTop: 10,
   },
 
   features: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+    gridTemplateColumns:
+      "repeat(auto-fit, minmax(260px, 1fr))",
     gap: 20,
-    padding: "60px 40px",
+    padding:
+      "0 40px 80px",
   },
 
   featureCard: {
-    background: "#111827",
-    padding: 20,
-    borderRadius: 12,
-    border: "1px solid rgba(255,255,255,0.08)",
+    background:
+      "rgba(17,24,39,0.8)",
+    padding: 24,
+    borderRadius: 16,
+    border:
+      "1px solid rgba(255,255,255,0.08)",
   },
 
   footer: {
     textAlign: "center",
     padding: 40,
     color: "#666",
-    borderTop: "1px solid rgba(255,255,255,0.08)",
+    borderTop:
+      "1px solid rgba(255,255,255,0.08)",
   },
 };
