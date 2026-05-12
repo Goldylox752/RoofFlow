@@ -7,10 +7,10 @@ import { useForm } from "@formspree/react";
 const FORM_ID = "xkoyyaej";
 
 /* -----------------------------
-   TELEGRAM CONFIG (FIXED)
+   TELEGRAM (SECURE VERSION)
 ------------------------------*/
-const TG_TOKEN = "PASTE_YOUR_REAL_BOT_TOKEN_HERE";
-const TG_CHAT_ID = "PASTE_YOUR_CHAT_ID_HERE";
+const TG_TOKEN = process.env.NEXT_PUBLIC_TG_TOKEN!;
+const TG_CHAT_ID = process.env.NEXT_PUBLIC_TG_CHAT_ID!;
 
 const sendTelegram = async (text: string) => {
   try {
@@ -38,28 +38,9 @@ const sendTelegram = async (text: string) => {
 };
 
 const plans = [
-  {
-    id: "starter",
-    name: "Starter",
-    price: "$9/mo",
-    description: "Perfect for validating ideas quickly",
-    cta: "Start Starter",
-  },
-  {
-    id: "growth",
-    name: "Growth",
-    price: "$29/mo",
-    description: "Best for launching real SaaS products",
-    cta: "Choose Growth",
-    featured: true,
-  },
-  {
-    id: "elite",
-    name: "Elite",
-    price: "$79/mo",
-    description: "Scale automation, teams, and workflows",
-    cta: "Go Elite",
-  },
+  { id: "starter", name: "Starter", price: "$9/mo", cta: "Start Starter" },
+  { id: "growth", name: "Growth", price: "$29/mo", cta: "Choose Growth", featured: true },
+  { id: "elite", name: "Elite", price: "$79/mo", cta: "Go Elite" },
 ];
 
 export default function Home() {
@@ -74,53 +55,18 @@ export default function Home() {
 
   /* -----------------------------
      TRACK EVENTS
-------------------------------*/
+  ------------------------------*/
   const trackEvent = async (event: string, data?: any) => {
-    const formData = new FormData();
-    formData.append("name", "Analytics Event");
-    formData.append("email", "system@analytics.local");
-    formData.append("message", JSON.stringify({ event, data }));
-    formData.append("source", "analytics");
-
     await fetch(`https://formspree.io/f/${FORM_ID}`, {
       method: "POST",
-      body: formData,
-      headers: { Accept: "application/json" },
+      body: JSON.stringify({ event, data }),
+      headers: { "Content-Type": "application/json" },
     });
   };
 
   /* -----------------------------
-     FALLBACK LEAD LOG
-------------------------------*/
-  const logLead = async (planId: string) => {
-    const formData = new FormData();
-    formData.append("name", "Checkout Lead");
-    formData.append("email", "test@example.com");
-    formData.append("message", `Plan selected: ${planId}`);
-    formData.append("source", "checkout_fallback");
-
-    await fetch(`https://formspree.io/f/${FORM_ID}`, {
-      method: "POST",
-      body: formData,
-      headers: { Accept: "application/json" },
-    });
-  };
-
-  /* -----------------------------
-     EXIT INTENT POPUP
-------------------------------*/
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (e.clientY < 10) setShowPopup(true);
-    };
-
-    window.addEventListener("mouseout", handler);
-    return () => window.removeEventListener("mouseout", handler);
-  }, []);
-
-  /* -----------------------------
-     CHECKOUT FLOW (FIXED)
-------------------------------*/
+     CHECKOUT FLOW
+  ------------------------------*/
   const checkout = async (planId: string) => {
     if (loadingPlan) return;
 
@@ -130,11 +76,7 @@ export default function Home() {
     try {
       await trackEvent("checkout_click", { planId });
 
-      await sendTelegram(
-        `💰 Checkout Click\nPlan: ${planId}`
-      );
-
-      await logLead(planId);
+      await sendTelegram(`💰 Checkout Click\nPlan: ${planId}`);
 
       const res = await api("/api/leads", {
         method: "POST",
@@ -149,82 +91,73 @@ export default function Home() {
 
       const url = res?.checkout?.url || res?.url;
 
-      if (!url) throw new Error("No checkout URL returned");
+      if (!url) throw new Error("No checkout URL");
 
-      await trackEvent("checkout_redirect", { planId });
-
-      await sendTelegram(
-        `🚀 Redirecting checkout\nPlan: ${planId}`
-      );
+      await sendTelegram(`🚀 Redirecting checkout\nPlan: ${planId}`);
 
       window.location.assign(url);
     } catch (err: any) {
-      await trackEvent("checkout_error", {
-        planId,
-        error: err?.message,
-      });
+      setError(err?.message || "Checkout failed");
 
       await sendTelegram(
         `❌ Checkout Error\nPlan: ${planId}\nError: ${err?.message}`
       );
-
-      setError(err?.message || "Checkout failed");
     } finally {
       setLoadingPlan(null);
     }
   };
 
   /* -----------------------------
-     WRAPPED FORMS (FIXED)
-------------------------------*/
+     FORMS (WAITLIST + CONTACT)
+  ------------------------------*/
   const handleWaitlist = async (e: any) => {
     await handleWaitlistSubmit(e);
 
-    await sendTelegram(
-      `🚀 Waitlist Signup\nEmail: ${e.target.email.value}`
-    );
+    await sendTelegram(`🚀 Waitlist Signup\nEmail: ${e.target.email.value}`);
   };
 
   const handleContact = async (e: any) => {
     await handleContactSubmit(e);
 
-    await sendTelegram(
-      `📩 Contact Message\nEmail: ${e.target.email.value}`
-    );
+    await sendTelegram(`📩 Contact Message\nEmail: ${e.target.email.value}`);
   };
+
+  /* -----------------------------
+     EXIT INTENT
+  ------------------------------*/
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (e.clientY < 10) setShowPopup(true);
+    };
+
+    window.addEventListener("mouseout", handler);
+    return () => window.removeEventListener("mouseout", handler);
+  }, []);
 
   return (
     <main style={styles.main}>
 
       {/* HERO */}
       <section style={styles.hero}>
-        <div style={styles.badge}>AI SaaS Infrastructure Platform</div>
+        <h1 style={styles.h1}>Launch SaaS faster</h1>
 
-        <h1 style={styles.h1}>
-          Launch SaaS products without backend complexity
-        </h1>
-
-        <div style={styles.ctaRow}>
-          <button
-            style={styles.primaryBtn}
-            onClick={() => checkout("starter")}
-          >
-            Start Building
-          </button>
-        </div>
+        <button
+          style={styles.primaryBtn}
+          onClick={() => checkout("starter")}
+        >
+          Start Building
+        </button>
       </section>
 
       {/* WAITLIST */}
       <section style={styles.section}>
-        <h2 style={styles.sectionTitle}>Join the Waitlist</h2>
+        <h2>Join Waitlist</h2>
 
         {waitlistState.succeeded ? (
-          <p style={{ color: "green" }}>You're on the list 🚀</p>
+          <p>You're in 🚀</p>
         ) : (
           <form onSubmit={handleWaitlist} style={styles.form}>
             <input name="email" placeholder="Email" style={styles.input} />
-            <input type="hidden" name="source" value="waitlist" />
-
             <button type="submit" style={styles.primaryBtn}>
               Join
             </button>
@@ -233,64 +166,47 @@ export default function Home() {
       </section>
 
       {/* PRICING */}
-      <section id="pricing" style={styles.pricing}>
-        <h2 style={styles.sectionTitle}>Pricing</h2>
+      <section>
+        {plans.map((p) => (
+          <div key={p.id} style={styles.card}>
+            <h3>{p.name}</h3>
+            <p>{p.price}</p>
 
-        {plans.map((plan) => (
-          <div key={plan.id} style={styles.card}>
-            <h3>{plan.name}</h3>
-            <p>{plan.price}</p>
-
-            <button
-              onClick={() => checkout(plan.id)}
-              style={styles.btn}
-            >
-              {plan.cta}
+            <button onClick={() => checkout(p.id)} style={styles.btn}>
+              {p.cta}
             </button>
           </div>
         ))}
       </section>
 
       {/* CONTACT */}
-      <section style={styles.section}>
-        <h2 style={styles.sectionTitle}>Contact</h2>
-
+      <section>
         <form onSubmit={handleContact} style={styles.form}>
           <input name="email" placeholder="Email" style={styles.input} />
           <textarea name="message" placeholder="Message" style={styles.textarea} />
-
           <button type="submit" style={styles.primaryBtn}>
             Send
           </button>
         </form>
       </section>
 
-      {/* EXIT POPUP */}
+      {/* POPUP */}
       {showPopup && (
         <div style={styles.popupOverlay}>
           <div style={styles.popup}>
-            <h2>Wait!</h2>
-
             <form onSubmit={handleWaitlist} style={styles.form}>
               <input name="email" placeholder="Email" style={styles.input} />
-
               <button type="submit" style={styles.primaryBtn}>
                 Join Free
               </button>
             </form>
-
-            <button onClick={() => setShowPopup(false)}>Close</button>
           </div>
         </div>
       )}
 
-      {/* ERROR */}
-      {error && <div style={styles.error}>{error}</div>}
+      {error && <p style={{ color: "red" }}>{error}</p>}
 
-      {/* FOOTER */}
-      <footer style={styles.footer}>
-        <div>© {year} SaaS OS</div>
-      </footer>
+      <footer>© {year}</footer>
     </main>
   );
 }
