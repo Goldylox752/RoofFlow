@@ -1,7 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { api } from "@/lib/api";
+import { useForm, ValidationError } from "@formspree/react";
+
+const FORM_ID = "xkoyyaej";
 
 const plans = [
   {
@@ -30,10 +33,70 @@ const plans = [
 
 export default function Home() {
   const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
-  const [error, setError] = useState<string>("");
+  const [error, setError] = useState("");
+  const [showPopup, setShowPopup] = useState(false);
 
   const year = useMemo(() => new Date().getFullYear(), []);
 
+  const [waitlistState, handleWaitlistSubmit] = useForm(FORM_ID);
+  const [contactState, handleContactSubmit] = useForm(FORM_ID);
+
+  /* -----------------------------
+     EVENT TRACKING (FORMSPREE LOG)
+  ------------------------------*/
+  const trackEvent = async (event: string, data?: any) => {
+    const formData = new FormData();
+    formData.append("name", "Analytics Event");
+    formData.append("email", "system@analytics.local");
+    formData.append(
+      "message",
+      JSON.stringify({
+        event,
+        data,
+        timestamp: new Date().toISOString(),
+      })
+    );
+    formData.append("source", "analytics");
+
+    await fetch(`https://formspree.io/f/${FORM_ID}`, {
+      method: "POST",
+      body: formData,
+      headers: { Accept: "application/json" },
+    });
+  };
+
+  /* -----------------------------
+     LEAD FALLBACK LOG (CHECKOUT)
+  ------------------------------*/
+  const logLead = async (planId: string) => {
+    const formData = new FormData();
+    formData.append("name", "Checkout Lead");
+    formData.append("email", "test@example.com");
+    formData.append("message", `Plan selected: ${planId}`);
+    formData.append("source", "checkout_fallback");
+
+    await fetch(`https://formspree.io/f/${FORM_ID}`, {
+      method: "POST",
+      body: formData,
+      headers: { Accept: "application/json" },
+    });
+  };
+
+  /* -----------------------------
+     EXIT INTENT POPUP
+  ------------------------------*/
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (e.clientY < 10) setShowPopup(true);
+    };
+
+    window.addEventListener("mouseout", handler);
+    return () => window.removeEventListener("mouseout", handler);
+  }, []);
+
+  /* -----------------------------
+     CHECKOUT FLOW (TRACKED)
+  ------------------------------*/
   const checkout = async (planId: string) => {
     if (loadingPlan) return;
 
@@ -41,17 +104,17 @@ export default function Home() {
     setLoadingPlan(planId);
 
     try {
+      await trackEvent("checkout_click", { planId });
+      await logLead(planId);
+
       const res = await api("/api/leads", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          plan: planId, // 🔥 now future-proof if backend uses it
+          plan: planId,
           email: "test@example.com",
           name: "Test User",
           city: "Calgary",
-          phone: null,
         }),
       });
 
@@ -60,14 +123,18 @@ export default function Home() {
         res?.checkout?.sessionUrl ||
         res?.url;
 
-      if (!checkoutUrl) {
-        throw new Error("Checkout session not returned by server");
-      }
+      if (!checkoutUrl) throw new Error("No checkout URL");
+
+      await trackEvent("checkout_redirect", { planId });
 
       window.location.assign(checkoutUrl);
     } catch (err: any) {
-      console.error("Checkout error:", err);
-      setError(err?.message || "Unable to start checkout");
+      await trackEvent("checkout_error", {
+        planId,
+        error: err?.message,
+      });
+
+      setError(err?.message || "Checkout failed");
     } finally {
       setLoadingPlan(null);
     }
@@ -78,68 +145,59 @@ export default function Home() {
 
       {/* HERO */}
       <section style={styles.hero}>
-        <div style={styles.badge}>
-          AI SaaS Infrastructure Platform
-        </div>
+        <div style={styles.badge}>AI SaaS Infrastructure Platform</div>
 
         <h1 style={styles.h1}>
-          Launch SaaS products without building backend infrastructure
+          Launch SaaS products without backend complexity
         </h1>
 
         <p style={styles.subHero}>
-          Authentication, Stripe payments, workflows, and automation — already built.
+          Auth, Stripe, workflows, and automation — already built.
         </p>
 
         <div style={styles.ctaRow}>
           <button
             style={styles.primaryBtn}
             onClick={() => checkout("starter")}
-            disabled={!!loadingPlan}
           >
-            {loadingPlan === "starter" ? "Redirecting..." : "Start Building"}
+            Start Building
           </button>
-
-          <a href="#pricing" style={styles.secondaryBtn}>
-            View Pricing
-          </a>
-        </div>
-
-        <div style={styles.socialProof}>
-          <span>✔ Stripe-secured</span>
-          <span>✔ Production-ready</span>
-          <span>✔ Cancel anytime</span>
         </div>
       </section>
 
-      {/* ERROR */}
-      {error && <div style={styles.error}>{error}</div>}
+      {/* WAITLIST */}
+      <section style={styles.section}>
+        <h2 style={styles.sectionTitle}>Join the Waitlist</h2>
+
+        {waitlistState.succeeded ? (
+          <p style={{ color: "green" }}>You're on the list 🚀</p>
+        ) : (
+          <form onSubmit={handleWaitlistSubmit} style={styles.form}>
+            <input name="name" placeholder="Name" style={styles.input} />
+            <input name="email" placeholder="Email" required style={styles.input} />
+            <input type="hidden" name="source" value="waitlist" />
+
+            <button type="submit" style={styles.primaryBtn}>
+              Join Waitlist
+            </button>
+          </form>
+        )}
+      </section>
 
       {/* FEATURES */}
       <section style={styles.section}>
-        <h2 style={styles.sectionTitle}>Everything you need to launch</h2>
-
+        <h2 style={styles.sectionTitle}>Everything you need</h2>
         <div style={styles.grid}>
-          <div style={styles.card}>Authentication system included</div>
-          <div style={styles.card}>Stripe payments built-in</div>
-          <div style={styles.card}>Automated workflows</div>
-          <div style={styles.card}>Production deployment ready</div>
-        </div>
-      </section>
-
-      {/* HOW IT WORKS */}
-      <section style={styles.section}>
-        <h2 style={styles.sectionTitle}>How it works</h2>
-
-        <div style={styles.steps}>
-          <div style={styles.card}>1. Choose a plan</div>
-          <div style={styles.card}>2. Connect Stripe</div>
-          <div style={styles.card}>3. Launch instantly</div>
+          <div style={styles.card}>Authentication</div>
+          <div style={styles.card}>Stripe Billing</div>
+          <div style={styles.card}>Automation Engine</div>
+          <div style={styles.card}>Production Ready</div>
         </div>
       </section>
 
       {/* PRICING */}
       <section id="pricing" style={styles.pricing}>
-        <h2 style={styles.sectionTitle}>Simple pricing</h2>
+        <h2 style={styles.sectionTitle}>Pricing</h2>
 
         <div style={styles.pricingGrid}>
           {plans.map((plan) => (
@@ -147,45 +205,66 @@ export default function Home() {
               key={plan.id}
               style={plan.featured ? styles.highlightCard : styles.card}
             >
-              {plan.featured && (
-                <div style={styles.popular}>MOST POPULAR</div>
-              )}
-
               <h3>{plan.name}</h3>
-              <p style={styles.price}>{plan.price}</p>
+              <p>{plan.price}</p>
               <p>{plan.description}</p>
 
               <button
                 style={styles.btn}
                 onClick={() => checkout(plan.id)}
-                disabled={loadingPlan === plan.id}
               >
-                {loadingPlan === plan.id ? "Redirecting..." : plan.cta}
+                {plan.cta}
               </button>
             </div>
           ))}
         </div>
       </section>
 
-      {/* FINAL CTA */}
-      <section style={styles.final}>
-        <h2>Ship SaaS products faster than ever</h2>
-        <button
-          style={styles.primaryBtn}
-          onClick={() => checkout("growth")}
-          disabled={!!loadingPlan}
-        >
-          Launch Now
-        </button>
+      {/* CONTACT */}
+      <section style={styles.section}>
+        <h2 style={styles.sectionTitle}>Contact</h2>
+
+        {contactState.succeeded ? (
+          <p style={{ color: "green" }}>Message sent</p>
+        ) : (
+          <form onSubmit={handleContactSubmit} style={styles.form}>
+            <input name="name" placeholder="Name" style={styles.input} />
+            <input name="email" placeholder="Email" style={styles.input} />
+            <textarea name="message" placeholder="Message" style={styles.textarea} />
+
+            <button type="submit" style={styles.primaryBtn}>
+              Send
+            </button>
+          </form>
+        )}
       </section>
+
+      {/* EXIT POPUP */}
+      {showPopup && (
+        <div style={styles.popupOverlay}>
+          <div style={styles.popup}>
+            <h2>Wait!</h2>
+            <p>Get early access updates</p>
+
+            <form onSubmit={handleWaitlistSubmit} style={styles.form}>
+              <input name="email" placeholder="Email" style={styles.input} />
+              <input type="hidden" name="source" value="exit_popup" />
+
+              <button type="submit" style={styles.primaryBtn}>
+                Join Free
+              </button>
+            </form>
+
+            <button onClick={() => setShowPopup(false)}>
+              Close
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* FOOTER */}
       <footer style={styles.footer}>
-        <div>© {year} NorthSky Flow OS</div>
-        <div style={styles.footerLinks}>
-          <a href="#">Privacy</a>
-          <a href="#">Terms</a>
-        </div>
+        <div>© {year} SaaS OS</div>
       </footer>
     </main>
   );
