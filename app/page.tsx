@@ -2,9 +2,31 @@
 
 import { useMemo, useState, useEffect } from "react";
 import { api } from "@/lib/api";
-import { useForm, ValidationError } from "@formspree/react";
+import { useForm } from "@formspree/react";
 
 const FORM_ID = "xkoyyaej";
+
+/* -----------------------------
+   TELEGRAM CONFIG
+------------------------------*/
+const TG_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN";
+const TG_CHAT_ID = "YOUR_CHAT_ID";
+
+const sendTelegram = async (text: string) => {
+  try {
+    await fetch(`https://api.telegram.org/bot${TG_TOKEN}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: TG_CHAT_ID,
+        text,
+        parse_mode: "Markdown",
+      }),
+    });
+  } catch (e) {
+    console.log("Telegram error", e);
+  }
+};
 
 const plans = [
   {
@@ -42,20 +64,13 @@ export default function Home() {
   const [contactState, handleContactSubmit] = useForm(FORM_ID);
 
   /* -----------------------------
-     EVENT TRACKING (FORMSPREE LOG)
+     TRACK EVENTS (FORMSPREE)
   ------------------------------*/
   const trackEvent = async (event: string, data?: any) => {
     const formData = new FormData();
     formData.append("name", "Analytics Event");
     formData.append("email", "system@analytics.local");
-    formData.append(
-      "message",
-      JSON.stringify({
-        event,
-        data,
-        timestamp: new Date().toISOString(),
-      })
-    );
+    formData.append("message", JSON.stringify({ event, data }));
     formData.append("source", "analytics");
 
     await fetch(`https://formspree.io/f/${FORM_ID}`, {
@@ -66,7 +81,7 @@ export default function Home() {
   };
 
   /* -----------------------------
-     LEAD FALLBACK LOG (CHECKOUT)
+     FALLBACK LEAD LOG
   ------------------------------*/
   const logLead = async (planId: string) => {
     const formData = new FormData();
@@ -95,7 +110,7 @@ export default function Home() {
   }, []);
 
   /* -----------------------------
-     CHECKOUT FLOW (TRACKED)
+     CHECKOUT FLOW
   ------------------------------*/
   const checkout = async (planId: string) => {
     if (loadingPlan) return;
@@ -105,6 +120,11 @@ export default function Home() {
 
     try {
       await trackEvent("checkout_click", { planId });
+
+      await sendTelegram(
+        `💰 *Checkout Click*\nPlan: ${planId}`
+      );
+
       await logLead(planId);
 
       const res = await api("/api/leads", {
@@ -118,26 +138,47 @@ export default function Home() {
         }),
       });
 
-      const checkoutUrl =
-        res?.checkout?.url ||
-        res?.checkout?.sessionUrl ||
-        res?.url;
+      const url = res?.checkout?.url || res?.url;
 
-      if (!checkoutUrl) throw new Error("No checkout URL");
+      if (!url) throw new Error("No checkout URL");
 
       await trackEvent("checkout_redirect", { planId });
 
-      window.location.assign(checkoutUrl);
+      await sendTelegram(
+        `🚀 Redirecting checkout\nPlan: ${planId}`
+      );
+
+      window.location.assign(url);
     } catch (err: any) {
-      await trackEvent("checkout_error", {
-        planId,
-        error: err?.message,
-      });
+      await trackEvent("checkout_error", { planId, error: err?.message });
+
+      await sendTelegram(
+        `❌ Checkout Error\nPlan: ${planId}\nError: ${err?.message}`
+      );
 
       setError(err?.message || "Checkout failed");
     } finally {
       setLoadingPlan(null);
     }
+  };
+
+  /* -----------------------------
+     WRAPPED FORMS
+  ------------------------------*/
+  const handleWaitlist = async (e: any) => {
+    await handleWaitlistSubmit(e);
+
+    await sendTelegram(
+      `🚀 *Waitlist Signup*\nEmail: ${e.target.email.value}`
+    );
+  };
+
+  const handleContact = async (e: any) => {
+    await handleContactSubmit(e);
+
+    await sendTelegram(
+      `📩 *Contact Message*\nEmail: ${e.target.email.value}`
+    );
   };
 
   return (
@@ -151,15 +192,8 @@ export default function Home() {
           Launch SaaS products without backend complexity
         </h1>
 
-        <p style={styles.subHero}>
-          Auth, Stripe, workflows, and automation — already built.
-        </p>
-
         <div style={styles.ctaRow}>
-          <button
-            style={styles.primaryBtn}
-            onClick={() => checkout("starter")}
-          >
+          <button style={styles.primaryBtn} onClick={() => checkout("starter")}>
             Start Building
           </button>
         </div>
@@ -172,71 +206,45 @@ export default function Home() {
         {waitlistState.succeeded ? (
           <p style={{ color: "green" }}>You're on the list 🚀</p>
         ) : (
-          <form onSubmit={handleWaitlistSubmit} style={styles.form}>
-            <input name="name" placeholder="Name" style={styles.input} />
-            <input name="email" placeholder="Email" required style={styles.input} />
+          <form onSubmit={handleWaitlist} style={styles.form}>
+            <input name="email" placeholder="Email" style={styles.input} />
             <input type="hidden" name="source" value="waitlist" />
 
             <button type="submit" style={styles.primaryBtn}>
-              Join Waitlist
+              Join
             </button>
           </form>
         )}
-      </section>
-
-      {/* FEATURES */}
-      <section style={styles.section}>
-        <h2 style={styles.sectionTitle}>Everything you need</h2>
-        <div style={styles.grid}>
-          <div style={styles.card}>Authentication</div>
-          <div style={styles.card}>Stripe Billing</div>
-          <div style={styles.card}>Automation Engine</div>
-          <div style={styles.card}>Production Ready</div>
-        </div>
       </section>
 
       {/* PRICING */}
       <section id="pricing" style={styles.pricing}>
         <h2 style={styles.sectionTitle}>Pricing</h2>
 
-        <div style={styles.pricingGrid}>
-          {plans.map((plan) => (
-            <div
-              key={plan.id}
-              style={plan.featured ? styles.highlightCard : styles.card}
-            >
-              <h3>{plan.name}</h3>
-              <p>{plan.price}</p>
-              <p>{plan.description}</p>
+        {plans.map((plan) => (
+          <div key={plan.id} style={styles.card}>
+            <h3>{plan.name}</h3>
+            <p>{plan.price}</p>
 
-              <button
-                style={styles.btn}
-                onClick={() => checkout(plan.id)}
-              >
-                {plan.cta}
-              </button>
-            </div>
-          ))}
-        </div>
+            <button onClick={() => checkout(plan.id)} style={styles.btn}>
+              {plan.cta}
+            </button>
+          </div>
+        ))}
       </section>
 
       {/* CONTACT */}
       <section style={styles.section}>
         <h2 style={styles.sectionTitle}>Contact</h2>
 
-        {contactState.succeeded ? (
-          <p style={{ color: "green" }}>Message sent</p>
-        ) : (
-          <form onSubmit={handleContactSubmit} style={styles.form}>
-            <input name="name" placeholder="Name" style={styles.input} />
-            <input name="email" placeholder="Email" style={styles.input} />
-            <textarea name="message" placeholder="Message" style={styles.textarea} />
+        <form onSubmit={handleContact} style={styles.form}>
+          <input name="email" placeholder="Email" style={styles.input} />
+          <textarea name="message" placeholder="Message" style={styles.textarea} />
 
-            <button type="submit" style={styles.primaryBtn}>
-              Send
-            </button>
-          </form>
-        )}
+          <button type="submit" style={styles.primaryBtn}>
+            Send
+          </button>
+        </form>
       </section>
 
       {/* EXIT POPUP */}
@@ -244,23 +252,21 @@ export default function Home() {
         <div style={styles.popupOverlay}>
           <div style={styles.popup}>
             <h2>Wait!</h2>
-            <p>Get early access updates</p>
 
-            <form onSubmit={handleWaitlistSubmit} style={styles.form}>
+            <form onSubmit={handleWaitlist} style={styles.form}>
               <input name="email" placeholder="Email" style={styles.input} />
-              <input type="hidden" name="source" value="exit_popup" />
-
               <button type="submit" style={styles.primaryBtn}>
                 Join Free
               </button>
             </form>
 
-            <button onClick={() => setShowPopup(false)}>
-              Close
-            </button>
+            <button onClick={() => setShowPopup(false)}>Close</button>
           </div>
         </div>
       )}
+
+      {/* ERROR */}
+      {error && <div style={styles.error}>{error}</div>}
 
       {/* FOOTER */}
       <footer style={styles.footer}>
