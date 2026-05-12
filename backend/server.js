@@ -5,25 +5,30 @@ const app = require("./app");
 const PORT = process.env.PORT || 3001;
 
 if (!process.env.PORT) {
-  console.warn("PORT not set in env, using fallback 3001");
+  console.warn("⚠️ PORT not set in env, using fallback 3001");
 }
 
-let server;
+let server = null;
+
+/* ===============================
+   START SERVER
+=============================== */
 
 try {
   server = app.listen(PORT, () => {
     console.log("=================================");
-    console.log("Server Running");
-    console.log(`Port: ${PORT}`);
-    console.log("Health: /health");
+    console.log("🚀 Server Running");
+    console.log(`📡 Port: ${PORT}`);
+    console.log("❤️ Health: /health");
     console.log("=================================");
   });
 
+  // Render / production stability tuning
   server.keepAliveTimeout = 65000;
   server.headersTimeout = 66000;
 
 } catch (err) {
-  console.error("Failed to start server:", err);
+  console.error("❌ Failed to start server:", err);
   process.exit(1);
 }
 
@@ -31,25 +36,30 @@ try {
    GRACEFUL SHUTDOWN
 =============================== */
 
-const shutdown = (reason, err, exitCode = 1) => {
-  console.error(`Shutdown triggered: ${reason}`);
+let isShuttingDown = false;
+
+const shutdown = (reason, err = null, exitCode = 0) => {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+
+  console.log(`\n🛑 Shutdown triggered: ${reason}`);
 
   if (err) {
-    console.error(err);
+    console.error("Error details:", err);
   }
 
   if (!server) {
-    process.exit(exitCode);
+    return process.exit(exitCode);
   }
 
   server.close(() => {
-    console.log("HTTP server closed cleanly");
+    console.log("✅ HTTP server closed cleanly");
     process.exit(exitCode);
   });
 
-  // Force shutdown safeguard
+  // safety fallback (Render sometimes hangs)
   setTimeout(() => {
-    console.error("Forced shutdown");
+    console.error("⚠️ Forced shutdown (timeout reached)");
     process.exit(exitCode);
   }, 10000).unref();
 };
@@ -59,25 +69,24 @@ const shutdown = (reason, err, exitCode = 1) => {
 =============================== */
 
 process.on("uncaughtException", (err) => {
-  console.error("UNCAUGHT EXCEPTION");
+  console.error("🔥 UNCAUGHT EXCEPTION");
   console.error(err);
-  process.exit(1);
+  shutdown("uncaughtException", err, 1);
 });
 
 process.on("unhandledRejection", (err) => {
-  shutdown("Unhandled Promise Rejection", err, 1);
+  console.error("🔥 UNHANDLED PROMISE REJECTION");
+  shutdown("unhandledRejection", err, 1);
 });
 
 /* ===============================
-   SIGNAL HANDLERS
+   SIGNAL HANDLERS (Render-safe)
 =============================== */
 
 process.on("SIGTERM", () => {
-  console.log("SIGTERM received");
   shutdown("SIGTERM", null, 0);
 });
 
 process.on("SIGINT", () => {
-  console.log("SIGINT received");
   shutdown("SIGINT", null, 0);
 });
