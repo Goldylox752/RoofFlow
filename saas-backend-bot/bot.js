@@ -26,7 +26,7 @@ app.use(express.json({ limit: "1mb" }));
 const bot = new TelegramBot(token);
 
 /* ===============================
-   WEBHOOK PATH (SECURE)
+   WEBHOOK PATH
 =============================== */
 const webhookPath = "/telegram-webhook";
 const fullWebhookUrl = `${webhookUrl}${webhookPath}`;
@@ -39,7 +39,8 @@ bot.setMyCommands([
   { command: "help", description: "Help menu" },
   { command: "ping", description: "Check bot status" },
   { command: "profile", description: "View profile" },
-  { command: "plan", description: "View subscription plan" }
+  { command: "plan", description: "View subscription plan" },
+  { command: "upgrade", description: "Upgrade to PRO" }
 ]);
 
 /* ===============================
@@ -57,8 +58,8 @@ async function initWebhook() {
 initWebhook();
 
 /* ===============================
-   SAAS USER STORE (IN-MEMORY)
-   Replace with MongoDB in production
+   SAAS USER STORE (TEMP MEMORY DB)
+   (Replace with MongoDB later)
 =============================== */
 const users = new Map();
 
@@ -80,6 +81,14 @@ function getOrCreateUser(tgUser) {
 }
 
 /* ===============================
+   UPGRADE SYSTEM (SaaS CORE)
+=============================== */
+function upgradeUser(user) {
+  user.plan = "pro";
+  users.set(user.telegramId, user);
+}
+
+/* ===============================
    COMMANDS
 =============================== */
 bot.onText(/\/start/, (msg) => {
@@ -89,11 +98,12 @@ bot.onText(/\/start/, (msg) => {
     msg.chat.id,
     `Welcome ${user.username}
 
-Your plan: ${user.plan}
+Plan: ${user.plan}
 
 Commands:
 /profile
 /plan
+/upgrade
 /help`
   );
 });
@@ -117,16 +127,45 @@ bot.onText(/\/plan/, (msg) => {
     msg.chat.id,
     `Current Plan: ${user.plan}
 
-Upgrade options:
+Available plans:
 - free
-- pro (coming soon)`
+- pro`
+  );
+});
+
+/* ===============================
+   UPGRADE COMMAND (SAAS CORE HOOK)
+=============================== */
+bot.onText(/\/upgrade/, (msg) => {
+  const user = getOrCreateUser(msg.from);
+
+  if (user.plan === "pro") {
+    return bot.sendMessage(msg.chat.id, "You are already PRO.");
+  }
+
+  bot.sendMessage(
+    msg.chat.id,
+    `Upgrade system ready.
+
+Current plan: free
+Target plan: pro
+
+Next step: connect Stripe payment.`
+  );
+
+  // TEMP AUTO UPGRADE (REMOVE when Stripe is added)
+  upgradeUser(user);
+
+  bot.sendMessage(
+    msg.chat.id,
+    "You have been upgraded to PRO (demo mode)."
   );
 });
 
 bot.onText(/\/help/, (msg) => {
   bot.sendMessage(
     msg.chat.id,
-    "Commands:\n/start\n/profile\n/plan\n/help\n/ping"
+    "Commands:\n/start\n/profile\n/plan\n/upgrade\n/help\n/ping"
   );
 });
 
@@ -135,7 +174,7 @@ bot.onText(/\/ping/, (msg) => {
 });
 
 /* ===============================
-   MESSAGE HANDLER (SAFE)
+   MESSAGE HANDLER (SAFE LOGGING)
 =============================== */
 bot.on("message", (msg) => {
   if (!msg.text || msg.text.startsWith("/")) return;
@@ -144,7 +183,7 @@ bot.on("message", (msg) => {
 });
 
 /* ===============================
-   WEBHOOK ENDPOINT (ROBUST)
+   WEBHOOK ENDPOINT
 =============================== */
 app.post(webhookPath, (req, res) => {
   try {
@@ -163,7 +202,8 @@ app.get("/health", (req, res) => {
   res.json({
     status: "ok",
     uptime: process.uptime(),
-    users: users.size
+    users: users.size,
+    proUsers: Array.from(users.values()).filter(u => u.plan === "pro").length
   });
 });
 
