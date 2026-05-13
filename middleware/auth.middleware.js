@@ -1,88 +1,83 @@
-const FEATURES = {
-  starter: {
-    ai_scoring: true,
-    lead_export: false,
-    priority_routing: false,
-    api_access: false,
-  },
-  growth: {
-    ai_scoring: true,
-    lead_export: true,
-    priority_routing: true,
-    api_access: false,
-  },
-  elite: {
-    ai_scoring: true,
-    lead_export: true,
-    priority_routing: true,
-    api_access: true,
-  },
+const { verifyToken } = require("../lib/jwt");
+const logger = require("../lib/logger");
+
+/* ===============================
+   EXTRACT TOKEN
+=============================== */
+const getTokenFromHeader = (req) => {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader) return null;
+
+  // Format: Bearer <token>
+  const parts = authHeader.split(" ");
+
+  if (parts.length !== 2 || parts[0] !== "Bearer") {
+    return null;
+  }
+
+  return parts[1];
 };
 
 /* ===============================
-   SAFE PLAN NORMALIZATION
+   AUTH MIDDLEWARE (CORE)
 =============================== */
-const normalizePlan = (plan) => {
-  if (!plan || typeof plan !== "string") return "starter";
+const requireAuth = (req, res, next) => {
+  try {
+    const token = getTokenFromHeader(req);
 
-  const cleaned = plan.toLowerCase().trim();
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        error: "Missing auth token",
+      });
+    }
 
-  // prevent invalid DB values from breaking SaaS
-  if (!FEATURES[cleaned]) return "starter";
+    const decoded = verifyToken(token);
 
-  return cleaned;
+    // attach user to request
+    req.user = {
+      id: decoded.id,
+      email: decoded.email,
+      role: decoded.role || "user",
+      plan: decoded.plan || "starter",
+    };
+
+    next();
+  } catch (err) {
+    logger.warn(
+      {
+        error: err.message,
+        path: req.path,
+      },
+      "Auth failed"
+    );
+
+    return res.status(401).json({
+      success: false,
+      error: "Invalid or expired token",
+    });
+  }
 };
 
 /* ===============================
-   PLAN LEVEL SYSTEM
+   ROLE-BASED ACCESS
 =============================== */
-const PLAN_LEVEL = {
-  starter: 1,
-  growth: 2,
-  elite: 3,
-};
-
-/* ===============================
-   GET PLAN FEATURES
-=============================== */
-const getPlan = (plan) => {
-  return FEATURES[normalizePlan(plan)];
-};
-
-/* ===============================
-   FEATURE CHECK (CORE SAFETY)
-=============================== */
-const hasFeature = (plan, feature) => {
-  const normalized = normalizePlan(plan);
-  const features = FEATURES[normalized];
-
-  if (!features) return false;
-  return features[feature] === true;
-};
-
-/* ===============================
-   PLAN ACCESS CHECK
-=============================== */
-const hasPlanAccess = (userPlan, requiredPlan) => {
-  const userLevel = PLAN_LEVEL[normalizePlan(userPlan)] || 0;
-  const requiredLevel = PLAN_LEVEL[normalizePlan(requiredPlan)] || 1;
-
-  return userLevel >= requiredLevel;
-};
-
-/* ===============================
-   FEATURE MIDDLEWARE
-=============================== */
-const requireFeature = (feature) => {
+const requireRole = (role) => {
   return (req, res, next) => {
-    const plan = req.user?.plan;
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        error: "Not authenticated",
+      });
+    }
 
-    if (!hasFeature(plan, feature)) {
+    if (req.user.role !== role) {
       return res.status(403).json({
         success: false,
-        error: "Feature not available on your plan",
-        feature,
-        currentPlan: normalizePlan(plan),
+        error: "Insufficient permissions",
+        requiredRole: role,
+        currentRole: req.user.role,
       });
     }
 
@@ -91,43 +86,35 @@ const requireFeature = (feature) => {
 };
 
 /* ===============================
-   PLAN MIDDLEWARE
+   OPTIONAL AUTH (PUBLIC ROUTES)
 =============================== */
-const requirePlan = (requiredPlan) => {
-  return (req, res, next) => {
-    const userPlan = req.user?.plan;
+const optionalAuth = (req, res, next) => {
+  try {
+    const token = getTokenFromHeader(req);
 
-    if (!hasPlanAccess(userPlan, requiredPlan)) {
-      return res.status(403).json({
-        success: false,
-        error: "Plan upgrade required",
-        currentPlan: normalizePlan(userPlan),
-        requiredPlan: normalizePlan(requiredPlan),
-      });
-    }
+    if (!token) return next();
+
+    const decoded = verifyToken(token);
+
+    req.user = {
+      id: decoded.id,
+      email: decoded.email,
+      role: decoded.role || "user",
+      plan: decoded.plan || "starter",
+    };
 
     next();
-  };
-};
-
-/* ===============================
-   FEATURE VALIDATION (SAAS SAFETY)
-=============================== */
-const isValidFeature = (feature) => {
-  const starter = FEATURES.starter;
-  return Object.prototype.hasOwnProperty.call(starter, feature);
+  } catch {
+    // ignore invalid token
+    next();
+  }
 };
 
 /* ===============================
    EXPORTS
 =============================== */
 module.exports = {
-  FEATURES,
-  getPlan,
-  hasFeature,
-  requireFeature,
-  requirePlan,
-  hasPlanAccess,
-  normalizePlan,
-  isValidFeature,
+  requireAuth,
+  requireRole,
+  optionalAuth,
 };
