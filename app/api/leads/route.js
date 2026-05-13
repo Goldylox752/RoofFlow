@@ -21,10 +21,10 @@ const TG_TOKEN = process.env.TG_TOKEN;
 const TG_CHAT_ID = process.env.TG_CHAT_ID;
 
 /* ===============================
-   TELEGRAM (NON-BLOCKING)
+   TELEGRAM (NON-BLOCKING LOGGER)
 =============================== */
 
-const sendTelegram = async (message) => {
+function sendTelegram(message) {
   if (!TG_TOKEN || !TG_CHAT_ID) return;
 
   fetch(`https://api.telegram.org/bot${TG_TOKEN}/sendMessage`, {
@@ -36,7 +36,7 @@ const sendTelegram = async (message) => {
       parse_mode: "Markdown",
     }),
   }).catch(() => {});
-};
+}
 
 /* ===============================
    HELPERS
@@ -51,10 +51,10 @@ const sanitizeUTM = (v) =>
   clean(v)?.slice(0, 120) || null;
 
 /* ===============================
-   STRIPE SESSION
+   STRIPE CHECKOUT
 =============================== */
 
-const createCheckoutSession = async ({ lead, tier, score, price }) => {
+async function createCheckoutSession({ lead, tier, score, price }) {
   return stripe.checkout.sessions.create({
     mode: "payment",
     payment_method_types: ["card"],
@@ -77,9 +77,9 @@ const createCheckoutSession = async ({ lead, tier, score, price }) => {
 
     metadata: {
       leadId: lead.id,
-      tier: String(tier),
+      tier,
       score: String(score),
-      email: String(lead.email || ""),
+      email: lead.email || "",
     },
 
     success_url: `${process.env.CLIENT_URL}/success?session_id={CHECKOUT_SESSION_ID}`,
@@ -87,14 +87,14 @@ const createCheckoutSession = async ({ lead, tier, score, price }) => {
 
     expires_at: Math.floor(Date.now() / 1000) + 60 * 30,
   });
-};
+}
 
 /* ===============================
-   ROUTE
+   ROUTE HANDLER
 =============================== */
 
 router.post("/", async (req, res) => {
-  const startedAt = Date.now();
+  const startTime = Date.now();
 
   try {
     let {
@@ -107,7 +107,7 @@ router.post("/", async (req, res) => {
       utm_medium,
     } = req.body || {};
 
-    /* ---------- normalize ---------- */
+    /* ---------- normalize input ---------- */
     name = clean(name);
     email = normalizeEmail(email);
     phone = clean(phone);
@@ -125,7 +125,7 @@ router.post("/", async (req, res) => {
       });
     }
 
-    /* ---------- idempotency key ---------- */
+    /* ---------- idempotency ---------- */
     const idempotencyKey = buildKey(email, phone, city);
 
     const { data: existing } = await supabase
@@ -147,17 +147,18 @@ router.post("/", async (req, res) => {
     const tier = getTier(score);
     const price = calculatePrice(score, city);
 
-    /* ---------- IP SAFE ---------- */
+    /* ---------- request metadata ---------- */
     const ip =
       (req.headers["x-forwarded-for"] || "")
         .split(",")[0]
         .trim() || req.ip;
 
-    /* ---------- create lead ---------- */
+    /* ---------- create lead payload ---------- */
     const leadId = crypto.randomUUID();
 
     const leadPayload = {
       id: leadId,
+
       name,
       email,
       phone,
@@ -182,31 +183,32 @@ router.post("/", async (req, res) => {
       created_at: new Date().toISOString(),
     };
 
-    const { data: lead, error: insertError } = await supabase
+    /* ---------- insert lead ---------- */
+    const { data: lead, error } = await supabase
       .from("leads")
       .insert([leadPayload])
       .select()
       .single();
 
-    if (insertError) {
+    if (error || !lead) {
       return res.status(500).json({
         success: false,
         error: "lead_insert_failed",
       });
     }
 
-    /* ---------- TELEGRAM (ASYNC) ---------- */
+    /* ---------- async telegram notify ---------- */
     sendTelegram(
-      `🚀 *NEW LEAD*\n\n` +
-      `👤 ${lead.name || "N/A"}\n` +
-      `📧 ${lead.email || "N/A"}\n` +
-      `📍 ${lead.city || "N/A"}\n` +
-      `💰 Score: ${score}\n` +
-      `🏷 Tier: ${tier}\n` +
-      `💵 Price: $${price}`
+      `NEW LEAD\n\n` +
+      `Name: ${lead.name || "N/A"}\n` +
+      `Email: ${lead.email || "N/A"}\n` +
+      `City: ${lead.city || "N/A"}\n` +
+      `Score: ${score}\n` +
+      `Tier: ${tier}\n` +
+      `Price: $${price}`
     );
 
-    /* ---------- STRIPE ---------- */
+    /* ---------- stripe checkout ---------- */
     const session = await createCheckoutSession({
       lead,
       tier,
@@ -214,17 +216,14 @@ router.post("/", async (req, res) => {
       price,
     });
 
-    const { error: updateError } = await supabase
+    /* ---------- store session ---------- */
+    await supabase
       .from("leads")
       .update({ stripe_session_id: session.id })
       .eq("id", lead.id);
 
-    if (updateError) {
-      throw updateError;
-    }
-
     sendTelegram(
-      `💳 *CHECKOUT CREATED*\n\n` +
+      `CHECKOUT CREATED\n\n` +
       `Lead: ${lead.id}\n` +
       `Tier: ${tier}\n` +
       `Amount: $${price}`
@@ -242,15 +241,15 @@ router.post("/", async (req, res) => {
         tier,
       },
       meta: {
-        processingTimeMs: Date.now() - startedAt,
+        processingTimeMs: Date.now() - startTime,
       },
     });
 
   } catch (err) {
-    console.error("LEAD ERROR:", err);
+    console.error("LEAD ROUTE ERROR:", err);
 
     sendTelegram(
-      `❌ *SYSTEM ERROR*\n\n${err.message || "Unknown error"}`
+      `SYSTEM ERROR\n\n${err.message || "Unknown error"}`
     );
 
     return res.status(500).json({
