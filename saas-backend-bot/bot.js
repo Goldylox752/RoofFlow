@@ -7,6 +7,20 @@ const Stripe = require("stripe");
 /* ===============================
    ENV VALIDATION
 =============================== */
+const requiredEnv = [
+  "TELEGRAM_BOT_TOKEN",
+  "WEBHOOK_URL",
+  "STRIPE_SECRET_KEY",
+  "STRIPE_PRICE_ID",
+  "CLIENT_URL",
+];
+
+for (const key of requiredEnv) {
+  if (!process.env[key]) {
+    throw new Error(`Missing env: ${key}`);
+  }
+}
+
 const {
   TELEGRAM_BOT_TOKEN,
   WEBHOOK_URL,
@@ -16,18 +30,6 @@ const {
   CLIENT_URL,
   PORT = 3000,
 } = process.env;
-
-const required = {
-  TELEGRAM_BOT_TOKEN,
-  WEBHOOK_URL,
-  STRIPE_SECRET_KEY,
-  STRIPE_PRICE_ID,
-  CLIENT_URL,
-};
-
-for (const [key, value] of Object.entries(required)) {
-  if (!value) throw new Error(`Missing env: ${key}`);
-}
 
 /* ===============================
    INIT SERVICES
@@ -49,7 +51,7 @@ app.use("/stripe-webhook", express.raw({ type: "application/json" }));
 app.use(express.json({ limit: "1mb" }));
 
 /* ===============================
-   MEMORY STORE (swap with DB later)
+   MEMORY STORE (replace with DB later)
 =============================== */
 const users = new Map();
 const timers = new Map();
@@ -59,26 +61,26 @@ const state = new Map();
    USER SYSTEM
 =============================== */
 function getUser(tgUser) {
-  let user = users.get(tgUser.id);
+  const id = tgUser.id;
 
-  if (!user) {
-    user = {
-      id: tgUser.id,
+  if (!users.has(id)) {
+    users.set(id, {
+      id,
       username: tgUser.username || "unknown",
       plan: "free",
       stripeSessionId: null,
       createdAt: Date.now(),
       lastActive: Date.now(),
-    };
-
-    users.set(tgUser.id, user);
+    });
   }
 
+  const user = users.get(id);
   user.lastActive = Date.now();
+
   return user;
 }
 
-const isPro = (u) => u.plan === "pro";
+const isPro = (user) => user.plan === "pro";
 
 /* ===============================
    HELPERS
@@ -91,7 +93,7 @@ const clearTimer = (id) => {
 };
 
 /* ===============================
-   SALES MESSAGE (HIGH CONVERSION)
+   SALES MESSAGE (OPTIMIZED CONVERSION)
 =============================== */
 function salesMessage(user) {
   return `
@@ -99,7 +101,7 @@ function salesMessage(user) {
 
 Hi @${user.username}
 
-You are currently on the FREE plan.
+You're currently on the FREE plan.
 
 ━━━━━━━━━━━━━━
 FREE:
@@ -111,14 +113,14 @@ FREE:
 💎 PRO — $19/month
 
 UNLOCK:
-⚡ Instant priority access
+⚡ Priority access
 🎯 Better results first
 🚀 Faster processing
 📈 More opportunities
 
 ━━━━━━━━━━━━━━
-WHY PRO:
-PRO users consistently move faster and get better outcomes.
+WHY USERS UPGRADE:
+They want faster results before others.
 
 👉 Upgrade here:
 ${CLIENT_URL}/checkout?plan=pro
@@ -147,20 +149,20 @@ bot.onText(/\/start/, (msg) => {
 
   clearTimer(user.id);
 
-  /* FOLLOW UP #1 (30s) */
+  /* FOLLOW UP 1 (30s) */
   timers.set(
     user.id,
     setTimeout(() => {
       if (!isPro(user)) {
         bot.sendMessage(
           user.id,
-          "Quick question 👀\n\nWant to see why PRO users get better results?"
+          "👀 Quick question:\n\nWant to see why PRO users get better results?"
         );
       }
     }, 30000)
   );
 
-  /* FOLLOW UP #2 (3 min) */
+  /* FOLLOW UP 2 (3 min) */
   timers.set(
     user.id,
     setTimeout(() => {
@@ -185,11 +187,11 @@ bot.onText(/\/plan/, (msg) => {
 `PLAN STATUS: ${user.plan.toUpperCase()}
 
 FREE:
-- Basic access
+• Basic access
 
 PRO:
-- Priority access
-- Faster results`
+• Priority access
+• Faster results`
   );
 });
 
@@ -247,7 +249,7 @@ bot.onText(/\/upgrade/, async (msg) => {
         if (!isPro(user)) {
           bot.sendMessage(
             user.id,
-            `Your PRO access is still waiting.\n\n👉 ${session.url}`
+            `⏳ Your PRO access is still waiting.\n\n👉 ${session.url}`
           );
         }
       }, 600000)
@@ -319,7 +321,7 @@ app.get("/health", (req, res) => {
   res.json({
     status: "ok",
     users: all.length,
-    proUsers: all.filter(u => u.plan === "pro").length,
+    proUsers: all.filter((u) => u.plan === "pro").length,
   });
 });
 
