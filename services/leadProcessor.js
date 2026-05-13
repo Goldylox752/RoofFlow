@@ -10,20 +10,25 @@ async function createLead({
   city,
   source = "web",
 }) {
-  if (!email) throw new Error("Email required");
+  if (!email) throw new Error("Email is required");
 
   const cleanEmail = email.trim().toLowerCase();
 
   /* ===============================
-     CHECK DUPLICATES FIRST
+     DUPLICATE CHECK (SAFE READ)
   =============================== */
-  const { data: existing } = await supabase
+  const { data: existing, error: fetchError } = await supabase
     .from("leads")
     .select("id")
     .eq("email", cleanEmail)
     .maybeSingle();
 
-  if (existing) {
+  if (fetchError) {
+    console.error("Supabase fetch error:", fetchError);
+    throw new Error("Failed to check existing leads");
+  }
+
+  if (existing?.id) {
     return {
       message: "Lead already exists",
       id: existing.id,
@@ -42,6 +47,9 @@ async function createLead({
     created_at: new Date().toISOString(),
   };
 
+  /* ===============================
+     INSERT LEAD
+  =============================== */
   const { data, error } = await supabase
     .from("leads")
     .insert([payload])
@@ -52,6 +60,7 @@ async function createLead({
     console.error("Supabase insert error:", {
       message: error.message,
       code: error.code,
+      details: error.details,
     });
 
     throw new Error("Failed to create lead");
@@ -59,3 +68,5 @@ async function createLead({
 
   return data;
 }
+
+module.exports = { createLead };
