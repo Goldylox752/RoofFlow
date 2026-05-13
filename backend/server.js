@@ -5,14 +5,14 @@ const app = require("./app");
 const PORT = process.env.PORT || 3001;
 
 if (!process.env.PORT) {
-  console.warn("⚠️ PORT not set in env, using fallback 3001");
+  console.warn("⚠️ Using fallback port 3001 (local only)");
 }
-
-let server = null;
 
 /* ===============================
    START SERVER
 =============================== */
+
+let server = null;
 
 try {
   server = app.listen(PORT, () => {
@@ -21,9 +21,10 @@ try {
     console.log(`📡 Port: ${PORT}`);
     console.log("❤️ Health: /health");
     console.log("=================================");
+    console.log("🚀 Server fully ready for requests");
   });
 
-  // Render / production stability tuning
+  // Render stability tuning
   server.keepAliveTimeout = 65000;
   server.headersTimeout = 66000;
 
@@ -33,7 +34,7 @@ try {
 }
 
 /* ===============================
-   GRACEFUL SHUTDOWN
+   SHUTDOWN SYSTEM
 =============================== */
 
 let isShuttingDown = false;
@@ -44,49 +45,38 @@ const shutdown = (reason, err = null, exitCode = 0) => {
 
   console.log(`\n🛑 Shutdown triggered: ${reason}`);
 
-  if (err) {
-    console.error("Error details:", err);
-  }
+  if (err) console.error(err);
 
-  if (!server) {
-    return process.exit(exitCode);
-  }
+  if (!server) return process.exit(exitCode);
 
   server.close(() => {
-    console.log("✅ HTTP server closed cleanly");
+    console.log("✅ Server closed cleanly");
     process.exit(exitCode);
   });
 
-  // safety fallback (Render sometimes hangs)
   setTimeout(() => {
-    console.error("⚠️ Forced shutdown (timeout reached)");
+    console.error("⚠️ Forced shutdown timeout");
     process.exit(exitCode);
   }, 10000).unref();
 };
 
 /* ===============================
-   CRASH HANDLERS
+   ERROR HANDLERS
 =============================== */
 
 process.on("uncaughtException", (err) => {
   console.error("🔥 UNCAUGHT EXCEPTION");
-  console.error(err);
   shutdown("uncaughtException", err, 1);
 });
 
 process.on("unhandledRejection", (err) => {
-  console.error("🔥 UNHANDLED PROMISE REJECTION");
+  console.error("🔥 UNHANDLED REJECTION");
   shutdown("unhandledRejection", err, 1);
 });
 
 /* ===============================
-   SIGNAL HANDLERS (Render-safe)
+   SIGNAL HANDLERS
 =============================== */
 
-process.on("SIGTERM", () => {
-  shutdown("SIGTERM", null, 0);
-});
-
-process.on("SIGINT", () => {
-  shutdown("SIGINT", null, 0);
-});
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
