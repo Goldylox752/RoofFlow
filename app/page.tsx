@@ -23,11 +23,13 @@ export default function Home() {
   const [contactState, handleContactSubmit] = useForm(FORM_ID);
 
   const trackEvent = async (event: string, data?: any) => {
-    await fetch(`https://formspree.io/f/${FORM_ID}`, {
-      method: "POST",
-      body: JSON.stringify({ event, data }),
-      headers: { "Content-Type": "application/json" },
-    });
+    try {
+      await fetch(`https://formspree.io/f/${FORM_ID}`, {
+        method: "POST",
+        body: JSON.stringify({ event, data }),
+        headers: { "Content-Type": "application/json" },
+      });
+    } catch {}
   };
 
   const checkout = async (planId: string) => {
@@ -39,22 +41,24 @@ export default function Home() {
     try {
       await trackEvent("checkout_click", { planId });
 
-      const res = await api("/api/leads", {
+      /* ===============================
+         CALL YOUR REAL BACKEND
+      =============================== */
+      const res = await api("/api/payments/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           plan: planId,
-          email: "test@example.com",
-          name: "Test User",
-          city: "Calgary",
         }),
       });
 
-      const url = res?.checkout?.url || res?.url;
+      const url = res?.url;
 
-      if (!url) throw new Error("No checkout URL returned");
+      if (!url) {
+        throw new Error("No checkout URL returned");
+      }
 
-      window.location.assign(url);
+      window.location.href = url;
     } catch (err: any) {
       setError(err?.message || "Checkout failed");
     } finally {
@@ -72,7 +76,7 @@ export default function Home() {
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (e.clientY < 10) setShowPopup(true);
+      if (e.clientY <= 5) setShowPopup(true);
     };
 
     window.addEventListener("mouseout", handler);
@@ -89,8 +93,9 @@ export default function Home() {
         <button
           style={styles.primaryBtn}
           onClick={() => checkout("starter")}
+          disabled={loadingPlan === "starter"}
         >
-          Start Building
+          {loadingPlan === "starter" ? "Loading..." : "Start Building"}
         </button>
       </section>
 
@@ -120,8 +125,9 @@ export default function Home() {
             <button
               onClick={() => checkout(p.id)}
               style={styles.btn}
+              disabled={loadingPlan === p.id}
             >
-              {p.cta}
+              {loadingPlan === p.id ? "Processing..." : p.cta}
             </button>
           </div>
         ))}
