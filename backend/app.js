@@ -9,13 +9,9 @@ const logger = require("./lib/logger");
 const app = express();
 
 /* ===============================
-   TRUST PROXY
+   BASIC SECURITY
 =============================== */
 app.set("trust proxy", 1);
-
-/* ===============================
-   SECURITY HARDENING
-=============================== */
 app.disable("x-powered-by");
 
 /* ===============================
@@ -24,7 +20,7 @@ app.disable("x-powered-by");
 app.use(express.json({ limit: "2mb" }));
 
 /* ===============================
-   REQUEST ID + CONTEXT
+   REQUEST ID MIDDLEWARE
 =============================== */
 app.use((req, res, next) => {
   req.id = crypto.randomUUID();
@@ -49,7 +45,7 @@ app.use(
 );
 
 /* ===============================
-   CORS (SAAS SAFE)
+   CORS
 =============================== */
 const allowedOrigins = new Set(
   [process.env.FRONTEND_URL, "http://localhost:3000"].filter(Boolean)
@@ -57,15 +53,13 @@ const allowedOrigins = new Set(
 
 app.use(
   cors({
-    origin: (origin, callback) => {
-      if (!origin) return callback(null, true);
+    origin: (origin, cb) => {
+      if (!origin) return cb(null, true);
 
-      if (allowedOrigins.has(origin)) {
-        return callback(null, true);
-      }
+      if (allowedOrigins.has(origin)) return cb(null, true);
 
       logger.warn({ origin }, "Blocked CORS request");
-      return callback(new Error("CORS blocked"), false);
+      return cb(new Error("CORS blocked"), false);
     },
     credentials: true,
   })
@@ -104,7 +98,6 @@ app.use((req, res, next) => {
         path: req.path,
         status: res.statusCode,
         durationMs: Math.round(ms),
-        userId: req.user?.id || null,   // 🔐 AUTH HOOK READY
       },
       "Request completed"
     );
@@ -114,43 +107,52 @@ app.use((req, res, next) => {
 });
 
 /* ===============================
-   AUTH HOOK (SAFE PLACEHOLDER)
+   AUTH PLACEHOLDER
 =============================== */
-// This allows you to plug JWT auth later without rewriting app.js
 app.use((req, res, next) => {
-  req.user = null; // will be replaced by auth middleware later
+  req.user = null;
   next();
 });
 
 /* ===============================
-   SAFE ROUTE LOADER
+   SAFE ROUTE LOADER (HARDENED)
 =============================== */
-const safeRoute = (path) => {
+const loadRoute = (path) => {
   try {
-    return require(path);
+    const route = require(path);
+
+    if (!route) {
+      logger.warn({ path }, "Route returned empty module");
+      return express.Router();
+    }
+
+    return route;
   } catch (err) {
-    logger.warn({ path }, "Missing route file");
+    logger.error(
+      {
+        path,
+        message: err.message,
+      },
+      "Failed to load route"
+    );
+
     return express.Router();
   }
 };
 
 /* ===============================
-   PUBLIC ROUTES
+   ROUTES
 =============================== */
-app.use("/api/webhook", safeRoute("./routes/webhook"));
-app.use("/api/telegram", safeRoute("./routes/telegramWebhook"));
-
-/* ===============================
-   PRIVATE ROUTES (READY FOR AUTH)
-=============================== */
-app.use("/api/leads", safeRoute("./routes/leadRoutes"));
-app.use("/api/payments", safeRoute("./routes/payments"));
+app.use("/api/webhook", loadRoute("./routes/webhook"));
+app.use("/api/telegram", loadRoute("./routes/telegramWebhook"));
+app.use("/api/leads", loadRoute("./routes/leadRoutes"));
+app.use("/api/payments", loadRoute("./routes/payments"));
 
 /* ===============================
    HEALTH CHECK
 =============================== */
 app.get("/health", (req, res) => {
-  res.status(200).json({
+  res.json({
     success: true,
     status: "healthy",
     uptime: process.uptime(),
@@ -164,7 +166,7 @@ app.get("/health", (req, res) => {
 app.get("/", (req, res) => {
   res.json({
     success: true,
-    message: "Lead backend running",
+    message: "Backend running",
   });
 });
 
@@ -197,9 +199,8 @@ app.use((err, req, res, next) => {
       message: err.message,
       stack: err.stack,
       requestId: req.id,
-      userId: req.user?.id || null,
     },
-    "Unhandled server error"
+    "Unhandled error"
   );
 
   res.status(500).json({
