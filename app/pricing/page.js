@@ -12,20 +12,32 @@ const LEAD_BASE_BY_SCORE: Record<string, number> = {
 /* ===============================
    SAFE NUMERIC UTIL
 =============================== */
-function clamp(n: number, min: number, max: number) {
+function clamp(n: number, min: number, max: number): number {
   const value = Number(n);
+
   if (!Number.isFinite(value)) return min;
+
   return Math.min(Math.max(value, min), max);
 }
 
 /* ===============================
    SCORE → BASE VALUE
 =============================== */
-function getBaseLeadValue(score: number) {
+function getBaseLeadValue(score: number): number {
   if (score >= 8) return LEAD_BASE_BY_SCORE.high;
   if (score >= 6) return LEAD_BASE_BY_SCORE.mid;
   return LEAD_BASE_BY_SCORE.low;
 }
+
+/* ===============================
+   INPUT TYPES
+=============================== */
+type LockLeadPriceInput = {
+  lead: any;
+  contractor: any;
+  cityRow: any;
+  systemMetrics: any;
+};
 
 /* ===============================
    CORE PRICE LOCK ENGINE
@@ -35,24 +47,19 @@ export function lockLeadPrice({
   contractor,
   cityRow,
   systemMetrics,
-}: {
-  lead: any;
-  contractor: any;
-  cityRow: any;
-  systemMetrics: any;
-}) {
+}: LockLeadPriceInput) {
   /* ===============================
-     1. SCORE NORMALIZATION
+     SCORE NORMALIZATION
   =============================== */
   const score = clamp(Number(lead?.score), 1, 10);
 
   /* ===============================
-     2. BASE VALUE
+     BASE VALUE
   =============================== */
   const baseLeadValue = getBaseLeadValue(score);
 
   /* ===============================
-     3. DEMAND MULTIPLIER
+     DEMAND MULTIPLIER
   =============================== */
   const demandMultiplier = clamp(
     Number(systemMetrics?.demandMultiplier),
@@ -61,7 +68,7 @@ export function lockLeadPrice({
   );
 
   /* ===============================
-     4. CONTRACTOR PLAN MULTIPLIER
+     CONTRACTOR MULTIPLIER
   =============================== */
   const contractorTierMultiplier =
     contractor?.plan === "elite"
@@ -71,7 +78,7 @@ export function lockLeadPrice({
       : 1;
 
   /* ===============================
-     5. CITY SCARCITY MODEL
+     CITY SCARCITY MODEL
   =============================== */
   const capacity = Math.max(Number(cityRow?.capacity) || 1, 1);
   const active = Math.max(Number(cityRow?.active_contractors) || 0, 0);
@@ -90,7 +97,7 @@ export function lockLeadPrice({
       : 1;
 
   /* ===============================
-     6. FINAL RAW PRICE
+     FINAL PRICE CALCULATION
   =============================== */
   const rawPrice = calculateFinalPrice({
     baseLeadValue,
@@ -99,17 +106,10 @@ export function lockLeadPrice({
     cityScarcityFactor,
   });
 
-  /* ===============================
-     7. PRICE GOVERNANCE (ANTI-ABUSE)
-  =============================== */
-  const finalPrice = clamp(
-    Math.round(rawPrice),
-    750,
-    25000
-  );
+  const finalPrice = clamp(Math.round(rawPrice), 750, 25000);
 
   /* ===============================
-     8. IMMUTABLE RETURN OBJECT
+     RESULT
   =============================== */
   return Object.freeze({
     finalPrice,
