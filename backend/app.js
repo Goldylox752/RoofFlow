@@ -9,7 +9,7 @@ const logger = require("./lib/logger");
 const app = express();
 
 /* ===============================
-   TRUST PROXY (Render / VPS / Cloud)
+   TRUST PROXY
 =============================== */
 app.set("trust proxy", 1);
 
@@ -33,23 +33,23 @@ app.use((req, res, next) => {
 });
 
 /* ===============================
-   RATE LIMITING (PRODUCTION SAFE)
+   RATE LIMITING
 =============================== */
-const limiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 500,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    success: false,
-    error: "Too many requests",
-  },
-});
-
-app.use(limiter);
+app.use(
+  rateLimit({
+    windowMs: 60 * 1000,
+    max: 500,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: {
+      success: false,
+      error: "Too many requests",
+    },
+  })
+);
 
 /* ===============================
-   CORS (STRICT SaaS MODE)
+   CORS (SAAS SAFE)
 =============================== */
 const allowedOrigins = new Set(
   [process.env.FRONTEND_URL, "http://localhost:3000"].filter(Boolean)
@@ -88,14 +88,14 @@ app.use((req, res, next) => {
 });
 
 /* ===============================
-   RESPONSE TIMER (SAAS OBSERVABILITY)
+   RESPONSE TIMER
 =============================== */
 app.use((req, res, next) => {
   const start = process.hrtime();
 
   res.on("finish", () => {
     const diff = process.hrtime(start);
-    const durationMs = diff[0] * 1000 + diff[1] / 1e6;
+    const ms = diff[0] * 1000 + diff[1] / 1e6;
 
     logger.info(
       {
@@ -103,7 +103,8 @@ app.use((req, res, next) => {
         method: req.method,
         path: req.path,
         status: res.statusCode,
-        durationMs: Math.round(durationMs),
+        durationMs: Math.round(ms),
+        userId: req.user?.id || null,   // 🔐 AUTH HOOK READY
       },
       "Request completed"
     );
@@ -113,7 +114,16 @@ app.use((req, res, next) => {
 });
 
 /* ===============================
-   SAFE ROUTER LOADER
+   AUTH HOOK (SAFE PLACEHOLDER)
+=============================== */
+// This allows you to plug JWT auth later without rewriting app.js
+app.use((req, res, next) => {
+  req.user = null; // will be replaced by auth middleware later
+  next();
+});
+
+/* ===============================
+   SAFE ROUTE LOADER
 =============================== */
 const safeRoute = (path) => {
   try {
@@ -125,12 +135,16 @@ const safeRoute = (path) => {
 };
 
 /* ===============================
-   ROUTES
+   PUBLIC ROUTES
+=============================== */
+app.use("/api/webhook", safeRoute("./routes/webhook"));
+app.use("/api/telegram", safeRoute("./routes/telegramWebhook"));
+
+/* ===============================
+   PRIVATE ROUTES (READY FOR AUTH)
 =============================== */
 app.use("/api/leads", safeRoute("./routes/leadRoutes"));
-app.use("/api/webhook", safeRoute("./routes/webhook"));
 app.use("/api/payments", safeRoute("./routes/payments"));
-app.use("/api/telegram", safeRoute("./routes/telegramWebhook"));
 
 /* ===============================
    HEALTH CHECK
@@ -183,6 +197,7 @@ app.use((err, req, res, next) => {
       message: err.message,
       stack: err.stack,
       requestId: req.id,
+      userId: req.user?.id || null,
     },
     "Unhandled server error"
   );
