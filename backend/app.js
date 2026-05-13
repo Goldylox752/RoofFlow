@@ -4,17 +4,17 @@ const express = require("express");
 const cors = require("cors");
 const rateLimit = require("express-rate-limit");
 const crypto = require("crypto");
-const logger = require("./lib/logger"); // 👈 NEW
+const logger = require("./lib/logger");
 
 const app = express();
 
 /* ===============================
-   TRUST PROXY (Render / VPS / Cloud)
+   TRUST PROXY
 =============================== */
 app.set("trust proxy", 1);
 
 /* ===============================
-   SECURITY HARDENING
+   SECURITY
 =============================== */
 app.disable("x-powered-by");
 
@@ -24,7 +24,7 @@ app.disable("x-powered-by");
 app.use(express.json({ limit: "2mb" }));
 
 /* ===============================
-   REQUEST ID MIDDLEWARE (CRITICAL FOR SAAS)
+   REQUEST ID
 =============================== */
 app.use((req, res, next) => {
   req.id = crypto.randomUUID();
@@ -33,23 +33,44 @@ app.use((req, res, next) => {
 });
 
 /* ===============================
-   RATE LIMITING (PRODUCTION SAFE)
+   RESPONSE TIMER (SAAS DEBUGGING POWER)
 =============================== */
-const limiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 500,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    success: false,
-    error: "Too many requests",
-  },
+app.use((req, res, next) => {
+  const start = Date.now();
+
+  res.on("finish", () => {
+    const duration = Date.now() - start;
+
+    logger.info({
+      requestId: req.id,
+      method: req.method,
+      path: req.path,
+      status: res.statusCode,
+      duration,
+    }, "Request completed");
+  });
+
+  next();
 });
 
-app.use(limiter);
+/* ===============================
+   RATE LIMITING
+=============================== */
+app.use(
+  rateLimit({
+    windowMs: 60 * 1000,
+    max: 500,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: {
+      success: false,
+      error: "Too many requests",
+    },
+  })
+);
 
 /* ===============================
-   CORS (PRODUCTION SAFE FIX)
+   CORS (SAFE + NO FULL API BREAK)
 =============================== */
 const allowedOrigins = new Set(
   [process.env.FRONTEND_URL, "http://localhost:3000"].filter(Boolean)
@@ -58,20 +79,22 @@ const allowedOrigins = new Set(
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (!origin) return callback(null, true);
+      try {
+        if (!origin) return callback(null, true);
+        if (allowedOrigins.has(origin)) return callback(null, true);
 
-      if (allowedOrigins.has(origin)) {
+        return callback(null, false); // SAFE FAIL (no crash)
+      } catch (err) {
+        logger.error(err, "CORS error");
         return callback(null, true);
       }
-
-      return callback(new Error("CORS blocked"), false);
     },
     credentials: true,
   })
 );
 
 /* ===============================
-   REQUEST LOGGER (UPGRADED)
+   REQUEST LOGGER
 =============================== */
 app.use((req, res, next) => {
   logger.info(
@@ -87,7 +110,7 @@ app.use((req, res, next) => {
 });
 
 /* ===============================
-   SAFE ROUTE LOADER
+   SAFE ROUTES
 =============================== */
 const safeRoute = (path) => {
   try {
@@ -98,16 +121,13 @@ const safeRoute = (path) => {
   }
 };
 
-/* ===============================
-   ROUTES
-=============================== */
 app.use("/api/leads", safeRoute("./routes/leadRoutes"));
 app.use("/api/webhook", safeRoute("./routes/webhook"));
 app.use("/api/payments", safeRoute("./routes/payments"));
 app.use("/api/telegram", safeRoute("./routes/telegramWebhook"));
 
 /* ===============================
-   HEALTH CHECK
+   HEALTH
 =============================== */
 app.get("/health", (req, res) => {
   logger.info({ requestId: req.id }, "Health check");
@@ -115,9 +135,7 @@ app.get("/health", (req, res) => {
   res.status(200).json({
     success: true,
     status: "healthy",
-    service: "Lead Backend API",
     uptime: process.uptime(),
-    timestamp: new Date().toISOString(),
   });
 });
 
@@ -125,15 +143,14 @@ app.get("/health", (req, res) => {
    ROOT
 =============================== */
 app.get("/", (req, res) => {
-  res.status(200).json({
+  res.json({
     success: true,
     message: "Lead backend running",
-    endpoints: ["/api/leads", "/health"],
   });
 });
 
 /* ===============================
-   404 HANDLER
+   404
 =============================== */
 app.use((req, res) => {
   logger.warn(
@@ -148,6 +165,7 @@ app.use((req, res) => {
   res.status(404).json({
     success: false,
     error: "Route not found",
+    requestId: req.id,
   });
 });
 
@@ -157,11 +175,11 @@ app.use((req, res) => {
 app.use((err, req, res, next) => {
   logger.error(
     {
-      err: err.message,
+      error: err.message,
       stack: err.stack,
       requestId: req.id,
     },
-    "Server error"
+    "Unhandled server error"
   );
 
   res.status(500).json({
