@@ -22,14 +22,6 @@ const supabase = createClient(
 );
 
 /* ===============================
-   SAFE FETCH (NODE COMPAT)
-=============================== */
-const fetchFn =
-  global.fetch ||
-  ((...args) =>
-    import("node-fetch").then(({ default: fetch }) => fetch(...args)));
-
-/* ===============================
    TELEGRAM (NON-BLOCKING)
 =============================== */
 const sendTelegram = async (text) => {
@@ -37,7 +29,7 @@ const sendTelegram = async (text) => {
   const chatId = process.env.TG_CHAT_ID;
   if (!token || !chatId) return;
 
-  fetchFn(`https://api.telegram.org/bot${token}/sendMessage`, {
+  fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -63,46 +55,42 @@ async function isProcessed(eventId) {
 }
 
 async function markEvent(eventId, payload) {
-  await supabase.from("stripe_events").upsert({
+  const { error } = await supabase.from("stripe_events").upsert({
     id: eventId,
     ...payload,
     updated_at: new Date().toISOString(),
   });
+
+  if (error) throw error;
 }
 
 /* ===============================
-   CHECKOUT HANDLER
+   CORE: CHECKOUT SUCCESS
 =============================== */
 async function handleCheckout(session) {
-  const metadata = session.metadata || {};
-
-  const leadId = metadata.leadId;
-  const plan = metadata.plan;
+  const leadId = session.metadata?.leadId;
+  const plan = session.metadata?.plan;
 
   if (!leadId || !plan) {
-    throw new Error("Missing Stripe metadata: leadId or plan");
+    throw new Error("Missing Stripe metadata (leadId, plan)");
   }
 
-  const customerId = session.customer || null;
-  const email = session.customer_details?.email || null;
-
-  const updatePayload = {
+  const update = {
     paid: true,
     status: "active",
     plan,
-    stripe_customer_id: customerId,
-    customer_email: email,
+    stripe_customer_id: session.customer || null,
+    customer_email: session.customer_details?.email || null,
     updated_at: new Date().toISOString(),
   };
 
   const { data, error } = await supabase
     .from("leads")
-    .update(updatePayload)
+    .update(update)
     .eq("id", leadId)
     .select();
 
   if (error) throw error;
-
   if (!data || data.length === 0) {
     throw new Error(`Lead not found: ${leadId}`);
   }
@@ -110,17 +98,75 @@ async function handleCheckout(session) {
   await supabase.from("payments").upsert({
     id: session.id,
     lead_id: leadId,
-    stripe_customer_id: customerId,
-    customer_email: email,
+    stripe_customer_id: session.customer || null,
+    customer_email: session.customer_details?.email || null,
     amount: (session.amount_total || 0) / 100,
     currency: session.currency || "usd",
     status: "paid",
     created_at: new Date().toISOString(),
   });
 
-  sendTelegram(
-    `Payment success\nLead: ${leadId}\nPlan: ${plan}\nAmount: ${(session.amount_total || 0) / 100}`
-  );
+  sendTelegram(`Payment success\nLead: ${leadId}\nPlan: ${plan}`);
+}
+
+/* ===============================
+   SUBSCRIPTION SYNC (NEW CORE)
+=============================== */
+async function syncSubscription(sub) {
+  const customerId = sub.customer;
+
+  const plan =
+    sub.items?.data?.[0]?.price?.metadata?.plan || "starter";
+
+  const status = sub.status;
+
+  const update = {
+    plan,
+    status: mapStatus(status),
+    updated_at: new Date().toISOString(),
+  };
+
+  const { error } = await supabase
+    .from("users")
+    .update(update)
+    .eq("stripe_customer_id", customerId);
+
+  if (error) throw error;
+}
+
+/* ===============================
+   PAYMENT FAILURE
+=============================== */
+async function handlePaymentFailed(invoice) {
+  const customerId = invoice.customer;
+
+  await supabase
+    .from("users")
+    .update({
+      status: "past_due",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("stripe_customer_id", customerId);
+
+  sendTelegram(`Payment failed\nCustomer: ${customerId}`);
+}
+
+/* ===============================
+   CANCEL
+=============================== */
+async function handleCancel(sub) {
+  const customerId = sub.customer;
+
+  await supabase
+    .from("users")
+    .update({
+      status: "canceled",
+      plan: "starter",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("stripe_customer_id", customerId);
+
+  sendTelegram(`Subscription canceled\nCustomer: ${customerId}`);
 }
 
 /* ===============================
@@ -132,8 +178,17 @@ async function processEvent(event) {
       await handleCheckout(event.data.object);
       break;
 
+    case "customer.subscription.created":
+    case "customer.subscription.updated":
+      await syncSubscription(event.data.object);
+      break;
+
+    case "invoice.payment_failed":
+      await handlePaymentFailed(event.data.object);
+      break;
+
     case "customer.subscription.deleted":
-      await sendTelegram("Subscription cancelled");
+      await handleCancel(event.data.object);
       break;
 
     default:
@@ -202,3 +257,18 @@ router.post(
 );
 
 module.exports = router;
+
+/* ===============================
+   HELPERS
+=============================== */
+function mapStatus(status) {
+  const map = {
+    active: "active",
+    trialing: "trialing",
+    past_due: "past_due",
+    unpaid: "suspended",
+    canceled: "canceled",
+  };
+
+  return map[status] || "unknown";
+}
