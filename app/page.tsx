@@ -11,123 +11,230 @@ export default function HomeClient() {
 
   return (
     <main style={styles.page}>
-      {/* HERO */}
-      <section style={styles.hero}>
-        <div style={styles.badge}>Production-ready SaaS starter kit</div>
+      <Navbar />
 
-        <h1 style={styles.title}>
-          Build and launch your SaaS in days, not months
-        </h1>
+      <Hero go={go} />
 
-        <p style={styles.subtitle}>
-          Everything you need is already built: authentication, Stripe billing,
-          subscriptions, feature gating, and scalable backend architecture.
-        </p>
+      <SocialProof />
 
-        <div style={styles.ctaRow}>
-          <button style={styles.primary} onClick={() => go("starter")}>
-            Start for $9/month
-          </button>
-          <button style={styles.secondary} onClick={() => go("growth")}>
-            View plans
-          </button>
-        </div>
+      <ProblemSolution />
 
-        <p style={styles.micro}>
-          No setup. No boilerplate hell. Ship immediately.
-        </p>
-      </section>
+      <Features />
 
-      {/* TRUST STRIP */}
-      <section style={styles.trust}>
-        <p>Built with production-grade systems used in real SaaS products</p>
-      </section>
+      <Pricing go={go} />
 
-      {/* PROBLEM / SOLUTION */}
-      <section style={styles.section}>
-        <h2>Stop wasting months building SaaS infrastructure</h2>
+      <FinalCTA go={go} />
 
-        <div style={styles.grid}>
-          <div>
-            <h3>Before</h3>
-            <ul>
-              <li>Auth from scratch</li>
-              <li>Stripe integration headaches</li>
-              <li>No subscription logic</li>
-              <li>Broken scaling setup</li>
-            </ul>
-          </div>
-
-          <div>
-            <h3>After</h3>
-            <ul>
-              <li>Ready-to-use auth system</li>
-              <li>Stripe billing prebuilt</li>
-              <li>Plan-based feature control</li>
-              <li>Production-ready backend</li>
-            </ul>
-          </div>
-        </div>
-      </section>
-
-      {/* FEATURES */}
-      <section style={styles.section}>
-        <h2>Everything included</h2>
-
-        <ul style={styles.features}>
-          <li>JWT authentication + session control</li>
-          <li>Stripe subscriptions & webhooks</li>
-          <li>Plan-based feature gating</li>
-          <li>Lead + pricing engine system</li>
-          <li>Rate limiting + security middleware</li>
-          <li>Scalable Express architecture</li>
-        </ul>
-      </section>
-
-      {/* PRICING */}
-      <section style={styles.section}>
-        <h2>Simple pricing</h2>
-
-        <div style={styles.pricing}>
-          <div style={styles.card}>
-            <h3>Starter</h3>
-            <p style={styles.price}>$9</p>
-            <button onClick={() => go("starter")}>Get Starter</button>
-          </div>
-
-          <div style={styles.card}>
-            <h3>Growth</h3>
-            <p style={styles.price}>$29</p>
-            <button onClick={() => go("growth")}>Get Growth</button>
-          </div>
-
-          <div style={styles.card}>
-            <h3>Elite</h3>
-            <p style={styles.price}>$79</p>
-            <button onClick={() => go("elite")}>Get Elite</button>
-          </div>
-        </div>
-      </section>
-
-      {/* FINAL CTA */}
-      <section style={styles.final}>
-        <h2>Launch your SaaS today</h2>
-        <button style={styles.primary} onClick={() => go("starter")}>
-          Start now
-        </button>
-      </section>
+      <Footer />
     </main>
   );
 }
 
 /* ===============================
-   STYLES (simple but structured)
+   NAVBAR
+=============================== */
+function Navbar() {
+  return (
+    <header style={styles.nav}>
+      <div style={styles.logo}>SaaSKit</div>
+      <div style={styles.navRight}>
+        <a style={styles.navLink}>Features</a>
+        <a style={styles.navLink}>Pricing</a>
+        <a style={styles.navLink}>Docs</a>
+      </div>
+    </header>
+  );
+}
+
+/* ===============================
+   HERO
+=============================== */
+function Hero({ go }: any) {
+  return (
+    <section style={styles.hero}>
+      <div style={styles.badge}>Production-ready SaaS starter kit</div>
+
+      <h1 style={styles.title}>
+        Launch your SaaS in days, not months
+      </h1>
+
+      <p style={styles.subtitle}>
+        Auth, Stripe billing, subscriptions, feature gating, and scalable backend
+        architecture—already built and production-ready.
+      </p>
+
+      <div style={styles.ctaRow}>
+        <button style={styles.primary} onClick={() => go("starter")}>
+          Start for $9/mo
+        </button>
+        <button style={styles.secondary} onClick={() => go("growth")}>
+          View pricing
+        </button>
+      </div>
+
+      <p style={styles.micro}>
+        No setup. No boilerplate chaos. Ship immediately.
+      </p>
+    </section>
+  );
+}
+
+/* ===============================
+   SOCIAL PROOF
+=============================== */
+function SocialProof() {
+  return (
+    <section style={styles.trust}>
+      Built with production-grade infrastructure used in real SaaS products
+    </section>
+  );
+}
+
+/* ===============================
+   PROBLEM → SOLUTION
+=============================== */
+function ProblemSolution() {
+  return (
+    <section style={styles.section}>
+      <h2>Stop rebuilding SaaS infrastructure from scratch</h2>
+
+      <div style={styles.grid}>
+        <div>
+          <h3 style={styles.badTitle}>Before</h3>
+          <ul>
+            <li>Building auth systems manually</li>
+            <li>Stripe integration headaches</li>
+            <li>No subscription logic</li>
+            <li>Broken scaling structure</li>
+          </ul>
+        </div>
+
+        <div>
+          <h3 style={styles.goodTitle}>After</h3>
+          <ul>
+            <li>Ready-to-use authentication</li>
+            <li>Stripe billing fully integrated</li>
+            <li>Plan-based feature control</li>
+            <li>Scalable backend architecture</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ===============================
+   FEATURES
+=============================== */
+function Features() {
+  return (
+    <section style={styles.section}>
+      <h2>Everything you need, already built</h2>
+
+      <div style={styles.featureGrid}>
+        <Feature title="Authentication" desc="JWT + session management" />
+        <Feature title="Billing" desc="Stripe subscriptions + webhooks" />
+        <Feature title="Feature Control" desc="Plan-based access control" />
+        <Feature title="Pricing Engine" desc="Dynamic pricing logic system" />
+        <Feature title="Security" desc="Rate limiting + middleware" />
+        <Feature title="Architecture" desc="Scalable Express backend" />
+      </div>
+    </section>
+  );
+}
+
+function Feature({ title, desc }: any) {
+  return (
+    <div style={styles.featureCard}>
+      <strong>{title}</strong>
+      <p style={{ opacity: 0.7 }}>{desc}</p>
+    </div>
+  );
+}
+
+/* ===============================
+   PRICING
+=============================== */
+function Pricing({ go }: any) {
+  return (
+    <section style={styles.section}>
+      <h2>Simple pricing</h2>
+
+      <div style={styles.pricing}>
+        <Plan title="Starter" price="$9" onClick={() => go("starter")} />
+        <Plan title="Growth" price="$29" onClick={() => go("growth")} />
+        <Plan title="Elite" price="$79" onClick={() => go("elite")} />
+      </div>
+    </section>
+  );
+}
+
+function Plan({ title, price, onClick }: any) {
+  return (
+    <div style={styles.card}>
+      <h3>{title}</h3>
+      <p style={styles.price}>{price}/mo</p>
+      <button style={styles.primarySmall} onClick={onClick}>
+        Get {title}
+      </button>
+    </div>
+  );
+}
+
+/* ===============================
+   FINAL CTA
+=============================== */
+function FinalCTA({ go }: any) {
+  return (
+    <section style={styles.final}>
+      <h2>Ready to launch your SaaS?</h2>
+      <button style={styles.primary} onClick={() => go("starter")}>
+        Start now
+      </button>
+    </section>
+  );
+}
+
+/* ===============================
+   FOOTER
+=============================== */
+function Footer() {
+  return (
+    <footer style={styles.footer}>
+      © {new Date().getFullYear()} SaaSKit. All rights reserved.
+    </footer>
+  );
+}
+
+/* ===============================
+   STYLES (cleaned)
 =============================== */
 const styles: any = {
   page: {
     background: "#0b0f17",
     color: "#fff",
     fontFamily: "sans-serif",
+  },
+
+  nav: {
+    display: "flex",
+    justifyContent: "space-between",
+    padding: "20px 24px",
+    borderBottom: "1px solid #1a1f2e",
+  },
+
+  logo: {
+    fontWeight: "bold",
+  },
+
+  navRight: {
+    display: "flex",
+    gap: 16,
+  },
+
+  navLink: {
+    opacity: 0.7,
+    cursor: "pointer",
   },
 
   hero: {
@@ -139,14 +246,14 @@ const styles: any = {
 
   badge: {
     fontSize: 12,
-    opacity: 0.7,
+    opacity: 0.6,
     marginBottom: 16,
   },
 
   title: {
-    fontSize: 44,
+    fontSize: 48,
     fontWeight: 700,
-    lineHeight: 1.2,
+    lineHeight: 1.1,
   },
 
   subtitle: {
@@ -164,6 +271,14 @@ const styles: any = {
 
   primary: {
     padding: "12px 20px",
+    background: "#4f46e5",
+    border: "none",
+    color: "#fff",
+    cursor: "pointer",
+  },
+
+  primarySmall: {
+    padding: "10px 16px",
     background: "#4f46e5",
     border: "none",
     color: "#fff",
@@ -205,9 +320,16 @@ const styles: any = {
     marginTop: 20,
   },
 
-  features: {
+  featureGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(3, 1fr)",
+    gap: 16,
     marginTop: 20,
-    lineHeight: 1.8,
+  },
+
+  featureCard: {
+    border: "1px solid #1f2937",
+    padding: 16,
   },
 
   pricing: {
@@ -218,7 +340,7 @@ const styles: any = {
   },
 
   card: {
-    border: "1px solid #222",
+    border: "1px solid #1f2937",
     padding: 20,
   },
 
@@ -231,4 +353,14 @@ const styles: any = {
     padding: "100px 24px",
     textAlign: "center",
   },
+
+  footer: {
+    padding: 40,
+    textAlign: "center",
+    opacity: 0.4,
+    borderTop: "1px solid #1a1f2e",
+  },
+
+  badTitle: { color: "#f87171" },
+  goodTitle: { color: "#34d399" },
 };
