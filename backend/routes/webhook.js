@@ -39,7 +39,7 @@ router.post(
     console.log("Stripe event:", event.type);
 
     /* ===============================
-       HANDLE CHECKOUT SUCCESS
+       1. CHECKOUT SUCCESS (NEW USER)
     =============================== */
     if (event.type === "checkout.session.completed") {
       const session = event.data.object;
@@ -52,65 +52,90 @@ router.post(
       const name = session.metadata?.name || "Unknown";
       const plan = session.metadata?.plan || "starter";
 
-      const sessionId = session.id;
-
-      if (!email) {
-        console.error("Missing email in session");
-        return res.status(400).json({
-          success: false,
-          error: "Missing email",
-        });
-      }
+      if (!email) return res.json({ received: true });
 
       const cleanEmail = email.toLowerCase().trim();
 
-      /* ===============================
-         IDENTITY SAFETY (IDEMPOTENCY CHECK)
-      =============================== */
-      const { data: existing } = await supabase
-        .from("users")
-        .select("id, stripe_session_id")
-        .eq("email", cleanEmail)
-        .maybeSingle();
-
-      if (existing?.stripe_session_id === sessionId) {
-        console.log("Duplicate webhook ignored:", cleanEmail);
-        return res.json({ received: true });
-      }
-
-      /* ===============================
-         UPSERT USER (SAAS MODEL)
-      =============================== */
-      const { error } = await supabase
-        .from("users")
-        .upsert(
-          [
-            {
-              email: cleanEmail,
-              name,
-              plan,
-              status: "active",
-
-              stripe_customer_id: session.customer,
-              stripe_session_id: sessionId,
-
-              activated_at: new Date().toISOString(),
-            },
-          ],
+      await supabase.from("users").upsert(
+        [
           {
-            onConflict: "email",
-          }
-        );
+            email: cleanEmail,
+            name,
+            plan,
+            status: "active",
 
-      if (error) {
-        console.error("Supabase error:", error);
-        return res.status(500).json({
-          success: false,
-          error: "db_error",
-        });
-      }
+            stripe_customer_id: session.customer,
+            stripe_session_id: session.id,
+
+            activated_at: new Date().toISOString(),
+          },
+        ],
+        { onConflict: "email" }
+      );
 
       console.log("User activated:", cleanEmail);
+    }
+
+    /* ===============================
+       2. SUBSCRIPTION CREATED / UPDATED
+    =============================== */
+    if (
+      event.type === "customer.subscription.created" ||
+      event.type === "customer.subscription.updated"
+    ) {
+      const sub = event.data.object;
+
+      const customerId = sub.customer;
+      const status = sub.status;
+
+      const plan =
+        sub.items?.data?.[0]?.price?.nickname ||
+        sub.items?.data?.[0]?.price?.id ||
+        "starter";
+
+      await supabase
+        .from("users")
+        .update({
+          plan,
+          status: status === "active" ? "active" : "inactive",
+          stripe_subscription_id: sub.id,
+        })
+        .eq("stripe_customer_id", customerId);
+
+      console.log("Subscription synced:", customerId);
+    }
+
+    /* ===============================
+       3. SUBSCRIPTION CANCELED
+    =============================== */
+    if (event.type === "customer.subscription.deleted") {
+      const sub = event.data.object;
+
+      await supabase
+        .from("users")
+        .update({
+          status: "canceled",
+          plan: "starter",
+        })
+        .eq("stripe_customer_id", sub.customer);
+
+      console.log("Subscription canceled:", sub.customer);
+    }
+
+    /* ===============================
+       4. PAYMENT FAILED
+    =============================== */
+    if (event.type === "invoice.payment_failed") {
+      const invoice = event.data.object;
+
+      await supabase
+        .from("users")
+        .update({
+          status: "past_due",
+        })
+        .eq("stripe_customer_id", invoice.customer);
+
+      console.log("Payment failed:", invoice.customer);
     }
 
     /* ===============================
