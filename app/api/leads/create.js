@@ -3,30 +3,28 @@ import { calculatePrice } from "@/lib/pricingEngine";
 import { routeLead } from "@/lib/routingEngine";
 
 /* ===============================
-   HELPERS (IMPROVED)
+   HELPERS
 =============================== */
 
 function buildDedupeKey(email, phone, city) {
   const identity = email || phone || "anonymous";
-  const location = city?.toLowerCase().trim() || "global";
+  const location = (city || "global").toLowerCase().trim();
   return `${identity}:${location}`;
 }
 
 function calculateScore(email, phone, city) {
-  // more realistic scoring model (0–10)
   let score = 3;
 
   if (email) score += 2;
   if (phone) score += 3;
   if (city) score += 1;
 
-  // slight boost for completeness
   if (email && phone && city) score += 1;
 
   return Math.min(10, score);
 }
 
-async function logEvent(type, payload) {
+async function logEvent(type, payload = {}) {
   try {
     await supabase.from("events").insert({
       type,
@@ -34,27 +32,19 @@ async function logEvent(type, payload) {
       created_at: new Date().toISOString(),
     });
   } catch (err) {
-    console.error("Event log failed:", err);
+    console.error("Event log failed:", err?.message);
   }
 }
 
 /* ===============================
-   MAIN ROUTE
+   MAIN HANDLER
 =============================== */
 
 export async function POST(req) {
-  const start = Date.now();
+  const startTime = Date.now();
 
   try {
-    const body = await req.json();
-
-    const {
-      email,
-      phone,
-      name,
-      city,
-      source = "direct",
-    } = body;
+    const { email, phone, name, city, source = "direct" } = await req.json();
 
     /* ===============================
        VALIDATION
@@ -71,7 +61,7 @@ export async function POST(req) {
     const score = calculateScore(email, phone, city);
 
     /* ===============================
-       1. IDEMPOTENCY CHECK (SAFE READ)
+       DUPLICATE CHECK
     =============================== */
 
     const { data: existing } = await supabase
@@ -89,16 +79,12 @@ export async function POST(req) {
     }
 
     /* ===============================
-       2. PRE-PRICE CALCULATION
+       CREATE LEAD (INITIAL STATE)
     =============================== */
 
     const basePrice = calculatePrice(score, "basic");
 
-    /* ===============================
-       3. CREATE LEAD (ATOMIC INSERT)
-    =============================== */
-
-    const { data: lead, error } = await supabase
+    const { data: lead, error: insertError } = await supabase
       .from("leads")
       .insert({
         email,
@@ -108,19 +94,18 @@ export async function POST(req) {
         source,
 
         dedupe_key: dedupeKey,
-
         score,
         price: basePrice,
 
         status: "new",
-
         created_at: new Date().toISOString(),
       })
       .select()
       .single();
 
-    if (error || !lead) {
-      await logEvent("lead_create_failed", { error });
+    if (insertError || !lead) {
+      await logEvent("lead_create_failed", { error: insertError?.message });
+
       return Response.json(
         { success: false, error: "Lead creation failed" },
         { status: 500 }
@@ -134,26 +119,28 @@ export async function POST(req) {
     });
 
     /* ===============================
-       4. ROUTING ENGINE
+       ROUTING ENGINE
     =============================== */
 
-    let assignment = null;
-
+    let assignment;
     try {
       assignment = await routeLead(lead);
     } catch (err) {
-      console.error("Routing error:", err);
-      await logEvent("routing_error", { leadId: lead.id, err: err?.message });
+      await logEvent("routing_error", {
+        leadId: lead.id,
+        error: err?.message,
+      });
+
+      assignment = null;
     }
 
     /* ===============================
-       5. NO ROUTE HANDLING
+       UNROUTED HANDLING
     =============================== */
 
     if (!assignment?.contractorId) {
       await logEvent("lead_unassigned", {
         leadId: lead.id,
-        reason: "no_available_contractor",
       });
 
       return Response.json({
@@ -164,19 +151,16 @@ export async function POST(req) {
     }
 
     /* ===============================
-       6. FINAL PRICE AFTER ROUTING
+       FINAL PRICE (POST ROUTING)
     =============================== */
 
-    const finalPrice = calculatePrice(
-      score,
-      assignment.cityTier || "basic"
-    );
+    const finalPrice = calculatePrice(score, assignment.cityTier || "basic");
 
     /* ===============================
-       7. ATOMIC ASSIGNMENT (RACE SAFE)
+       ATOMIC ASSIGNMENT (RACE SAFE)
     =============================== */
 
-    const { data: claimed } = await supabase
+    const { data: updated } = await supabase
       .from("leads")
       .update({
         status: "assigned",
@@ -193,10 +177,8 @@ export async function POST(req) {
       .select()
       .maybeSingle();
 
-    if (!claimed) {
-      await logEvent("lead_claim_race", {
-        leadId: lead.id,
-      });
+    if (!updated) {
+      await logEvent("lead_race_condition", { leadId: lead.id });
 
       return Response.json(
         { success: false, error: "LEAD_ALREADY_CLAIMED" },
@@ -205,7 +187,7 @@ export async function POST(req) {
     }
 
     /* ===============================
-       8. FINAL EVENT LOG
+       FINAL EVENT
     =============================== */
 
     await logEvent("lead_assigned", {
@@ -222,13 +204,13 @@ export async function POST(req) {
     return Response.json({
       success: true,
       routed: true,
-      lead: claimed,
+      lead: updated,
       assignment,
-      latency_ms: Date.now() - start,
+      latency_ms: Date.now() - startTime,
     });
 
   } catch (err) {
-    console.error("🔥 Lead engine crash:", err);
+    console.error("Lead engine crash:", err);
 
     await logEvent("lead_engine_crash", {
       error: err?.message,
