@@ -26,7 +26,8 @@ const supabase = createClient(
 =============================== */
 const fetchFn =
   global.fetch ||
-  ((...args) => import("node-fetch").then(({ default: fetch }) => fetch(...args)));
+  ((...args) =>
+    import("node-fetch").then(({ default: fetch }) => fetch(...args)));
 
 /* ===============================
    TELEGRAM (NON-BLOCKING)
@@ -70,7 +71,7 @@ async function markEvent(eventId, payload) {
 }
 
 /* ===============================
-   CORE: CHECKOUT SUCCESS
+   CHECKOUT HANDLER
 =============================== */
 async function handleCheckout(session) {
   const metadata = session.metadata || {};
@@ -79,7 +80,7 @@ async function handleCheckout(session) {
   const plan = metadata.plan;
 
   if (!leadId || !plan) {
-    throw new Error("Missing Stripe metadata (leadId, plan)");
+    throw new Error("Missing Stripe metadata: leadId or plan");
   }
 
   const customerId = session.customer || null;
@@ -89,16 +90,11 @@ async function handleCheckout(session) {
     paid: true,
     status: "active",
     plan,
-
     stripe_customer_id: customerId,
     customer_email: email,
-
     updated_at: new Date().toISOString(),
   };
 
-  /* ===============================
-     UPDATE LEAD
-  =============================== */
   const { data, error } = await supabase
     .from("leads")
     .update(updatePayload)
@@ -106,40 +102,29 @@ async function handleCheckout(session) {
     .select();
 
   if (error) throw error;
+
   if (!data || data.length === 0) {
     throw new Error(`Lead not found: ${leadId}`);
   }
 
-  /* ===============================
-     PAYMENT RECORD
-  =============================== */
   await supabase.from("payments").upsert({
     id: session.id,
     lead_id: leadId,
-
     stripe_customer_id: customerId,
     customer_email: email,
-
     amount: (session.amount_total || 0) / 100,
     currency: session.currency || "usd",
     status: "paid",
-
     created_at: new Date().toISOString(),
   });
 
-  /* ===============================
-     TELEGRAM ALERT
-  =============================== */
   sendTelegram(
-    `💰 *PAYMENT SUCCESS*\n` +
-      `Lead: ${leadId}\n` +
-      `Plan: ${plan}\n` +
-      `Amount: $${(session.amount_total || 0) / 100}`
+    `Payment success\nLead: ${leadId}\nPlan: ${plan}\nAmount: ${(session.amount_total || 0) / 100}`
   );
 }
 
 /* ===============================
-   EVENT ROUTER (EXTENSIBLE)
+   EVENT ROUTER
 =============================== */
 async function processEvent(event) {
   switch (event.type) {
@@ -148,7 +133,7 @@ async function processEvent(event) {
       break;
 
     case "customer.subscription.deleted":
-      await sendTelegram("⚠️ Subscription cancelled");
+      await sendTelegram("Subscription cancelled");
       break;
 
     default:
@@ -171,18 +156,12 @@ router.post(
         return res.status(400).send("Missing Stripe signature");
       }
 
-      /* ===============================
-         VERIFY STRIPE SIGNATURE
-      =============================== */
       event = stripe.webhooks.constructEvent(
         req.body,
         signature,
         getEnv("STRIPE_WEBHOOK_SECRET")
       );
 
-      /* ===============================
-         IDEMPOTENCY CHECK
-      =============================== */
       if (await isProcessed(event.id)) {
         return res.json({ received: true, duplicate: true });
       }
@@ -192,9 +171,6 @@ router.post(
         status: "processing",
       });
 
-      /* ===============================
-         PROCESS EVENT
-      =============================== */
       await processEvent(event);
 
       await markEvent(event.id, {
@@ -215,7 +191,7 @@ router.post(
         });
       }
 
-      sendTelegram(`❌ *WEBHOOK ERROR*\n${err.message}`);
+      sendTelegram(`Webhook error\n${err.message}`);
 
       return res.status(500).json({
         success: false,
