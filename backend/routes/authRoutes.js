@@ -11,21 +11,65 @@ const supabase = createClient(
 );
 
 /* ===============================
-   REGISTER
+   HELPERS
+=============================== */
+const normalizeEmail = (email) => {
+  return typeof email === "string" ? email.toLowerCase().trim() : null;
+};
+
+const safeError = (res, code, message) => {
+  return res.status(code).json({
+    success: false,
+    error: message,
+  });
+};
+
+/* ===============================
+   REGISTER (HARDENED)
 =============================== */
 router.post("/register", async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const email = normalizeEmail(req.body.email);
+    const password = req.body.password;
+
+    if (!email || !password) {
+      return safeError(res, 400, "Email and password required");
+    }
+
+    if (password.length < 6) {
+      return safeError(res, 400, "Password too short (min 6 chars)");
+    }
+
+    /* CHECK DUPLICATES */
+    const { data: existing } = await supabase
+      .from("users")
+      .select("id")
+      .eq("email", email)
+      .maybeSingle();
+
+    if (existing) {
+      return safeError(res, 409, "Email already registered");
+    }
 
     const hashed = await bcrypt.hash(password, 10);
 
     const { data, error } = await supabase
       .from("users")
-      .insert([{ email, password: hashed, role: "user", plan: "starter" }])
+      .insert([
+        {
+          email,
+          password: hashed,
+          role: "user",
+          plan: "starter",
+        },
+      ])
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error("REGISTER_ERROR:", error);
+      return safeError(res, 500, "Registration failed");
+    }
 
     const token = signToken({
       id: data.id,
@@ -34,45 +78,48 @@ router.post("/register", async (req, res) => {
       plan: data.plan,
     });
 
-    res.json({
+    return res.status(201).json({
       success: true,
       token,
+      user: {
+        id: data.id,
+        email: data.email,
+        role: data.role,
+        plan: data.plan,
+      },
     });
   } catch (err) {
-    res.status(500).json({
-      success: false,
-      error: err.message,
-    });
+    console.error("REGISTER_EXCEPTION:", err);
+    return safeError(res, 500, "Internal server error");
   }
 });
 
 /* ===============================
-   LOGIN
+   LOGIN (HARDENED)
 =============================== */
 router.post("/login", async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const email = normalizeEmail(req.body.email);
+    const password = req.body.password;
+
+    if (!email || !password) {
+      return safeError(res, 400, "Email and password required");
+    }
 
     const { data, error } = await supabase
       .from("users")
-      .select("*")
+      .select("id, email, password, role, plan")
       .eq("email", email)
-      .single();
+      .maybeSingle();
 
     if (error || !data) {
-      return res.status(401).json({
-        success: false,
-        error: "Invalid credentials",
-      });
+      return safeError(res, 401, "Invalid credentials");
     }
 
     const valid = await bcrypt.compare(password, data.password);
 
     if (!valid) {
-      return res.status(401).json({
-        success: false,
-        error: "Invalid credentials",
-      });
+      return safeError(res, 401, "Invalid credentials");
     }
 
     const token = signToken({
@@ -82,15 +129,19 @@ router.post("/login", async (req, res) => {
       plan: data.plan,
     });
 
-    res.json({
+    return res.json({
       success: true,
       token,
+      user: {
+        id: data.id,
+        email: data.email,
+        role: data.role,
+        plan: data.plan,
+      },
     });
   } catch (err) {
-    res.status(500).json({
-      success: false,
-      error: err.message,
-    });
+    console.error("LOGIN_EXCEPTION:", err);
+    return safeError(res, 500, "Internal server error");
   }
 });
 
