@@ -7,54 +7,59 @@ const { createClient } = require("@supabase/supabase-js");
    ENV SAFETY
 =============================== */
 
-const requiredEnv = (key) => {
-  const value = process.env[key]?.trim();
-  if (!value) throw new Error(`Missing env: ${key}`);
-  return value;
+const getEnv = (key) => {
+  const val = process.env[key];
+  if (!val) throw new Error(`Missing env: ${key}`);
+  return val;
 };
 
-const stripe = new Stripe(requiredEnv("STRIPE_SECRET_KEY"), {
+const stripe = new Stripe(getEnv("STRIPE_SECRET_KEY"), {
   apiVersion: "2024-06-20",
 });
 
 const supabase = createClient(
-  requiredEnv("SUPABASE_URL"),
-  requiredEnv("SUPABASE_SERVICE_ROLE_KEY")
+  getEnv("SUPABASE_URL"),
+  getEnv("SUPABASE_SERVICE_ROLE_KEY")
 );
 
 /* ===============================
-   OPTIONAL TELEGRAM MODE HOOK
+   TELEGRAM (NON-BLOCKING)
 =============================== */
 
 const sendTelegram = async (text) => {
   const token = process.env.TG_TOKEN;
   const chatId = process.env.TG_CHAT_ID;
-
   if (!token || !chatId) return;
 
-  try {
-    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text,
-        parse_mode: "Markdown",
-      }),
-    });
-  } catch (err) {
-    console.error("Telegram error:", err);
-  }
+  fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chat_id: chatId,
+      text,
+      parse_mode: "Markdown",
+    }),
+  }).catch(() => {});
 };
 
 /* ===============================
-   EVENT LOGGER (SAFE UPSERT)
+   IDEMPOTENCY HELPERS
 =============================== */
 
-async function markEvent(eventId, data) {
+async function isProcessed(eventId) {
+  const { data } = await supabase
+    .from("stripe_events")
+    .select("id")
+    .eq("id", eventId)
+    .maybeSingle();
+
+  return !!data;
+}
+
+async function markEvent(eventId, payload) {
   await supabase.from("stripe_events").upsert({
     id: eventId,
-    ...data,
+    ...payload,
     updated_at: new Date().toISOString(),
   });
 }
@@ -63,70 +68,73 @@ async function markEvent(eventId, data) {
    CORE BUSINESS LOGIC
 =============================== */
 
-async function handleCheckoutCompleted(session) {
-  const leadId = session.metadata?.leadId;
-  const plan = session.metadata?.plan;
+async function handleCheckout(session) {
+  const metadata = session.metadata || {};
 
-  if (!leadId || !plan) {
-    throw new Error("Missing metadata: leadId or plan");
+  if (!metadata.leadId || !metadata.plan) {
+    throw new Error("Missing Stripe metadata: leadId or plan");
   }
+
+  const leadId = String(metadata.leadId);
+  const plan = String(metadata.plan);
 
   const updatePayload = {
     paid: true,
-    status: "paid",
+    status: "active",
     plan,
 
-    customer_email: session.customer_details?.email || null,
     stripe_customer_id: session.customer || null,
+    customer_email: session.customer_details?.email || null,
 
     updated_at: new Date().toISOString(),
   };
 
   /* ===============================
-     UPDATE LEAD (SAFE)
+     UPDATE LEAD (SAFE CHECK)
   =============================== */
 
-  const { error: leadError } = await supabase
+  const { data, error } = await supabase
     .from("leads")
     .update(updatePayload)
-    .eq("id", leadId);
+    .eq("id", leadId)
+    .select();
 
-  if (leadError) throw leadError;
+  if (error) throw error;
+
+  if (!data || data.length === 0) {
+    throw new Error("Lead not found for update");
+  }
 
   /* ===============================
      PAYMENT RECORD
   =============================== */
 
-  const { error: paymentError } = await supabase
-    .from("payments")
-    .upsert(
-      {
-        id: session.id,
-        lead_id: leadId,
+  await supabase.from("payments").upsert(
+    {
+      id: session.id,
+      lead_id: leadId,
 
-        stripe_customer_id: session.customer || null,
-        customer_email: session.customer_details?.email || null,
+      stripe_customer_id: session.customer || null,
+      customer_email: session.customer_details?.email || null,
 
-        amount: (session.amount_total || 0) / 100,
-        currency: session.currency || "usd",
+      amount: (session.amount_total || 0) / 100,
+      currency: session.currency || "usd",
+      status: "paid",
 
-        status: "paid",
-        created_at: new Date().toISOString(),
-      },
-      { onConflict: "id" }
-    );
-
-  if (paymentError) throw paymentError;
+      created_at: new Date().toISOString(),
+    },
+    { onConflict: "id" }
+  );
 
   /* ===============================
-     TELEGRAM MODE EVENT
+     TELEGRAM (NON-BLOCKING)
   =============================== */
 
-  await sendTelegram(
+  sendTelegram(
     `💰 *PAYMENT SUCCESS*\n\n` +
-    `Lead: ${leadId}\n` +
-    `Plan: ${plan}\n` +
-    `Amount: $${(session.amount_total || 0) / 100}`
+      `Lead: ${leadId}\n` +
+      `Plan: ${plan}\n` +
+      `Amount: $${(session.amount_total || 0) / 100}`
   );
 }
 
@@ -137,7 +145,7 @@ async function handleCheckoutCompleted(session) {
 async function processEvent(event) {
   switch (event.type) {
     case "checkout.session.completed":
-      await handleCheckoutCompleted(event.data.object);
+      await handleCheckout(event.data.object);
       break;
 
     default:
@@ -157,43 +165,29 @@ router.post(
 
     try {
       const signature = req.headers["stripe-signature"];
-
       if (!signature) {
         return res.status(400).send("Missing signature");
       }
 
       /* ===============================
-         VERIFY STRIPE SIGNATURE
+         VERIFY STRIPE EVENT
       =============================== */
 
       event = stripe.webhooks.constructEvent(
         req.body,
         signature,
-        requiredEnv("STRIPE_WEBHOOK_SECRET")
+        getEnv("STRIPE_WEBHOOK_SECRET")
       );
 
       console.log("Stripe event:", event.type);
 
       /* ===============================
-         IDEMPOTENCY CHECK (FIXED)
+         IDEMPOTENCY CHECK (STRICT)
       =============================== */
 
-      const { data: existing } = await supabase
-        .from("stripe_events")
-        .select("id, status")
-        .eq("id", event.id)
-        .maybeSingle();
-
-      if (existing?.status === "completed") {
-        return res.json({
-          received: true,
-          duplicate: true,
-        });
+      if (await isProcessed(event.id)) {
+        return res.json({ received: true, duplicate: true });
       }
-
-      /* ===============================
-         MARK PROCESSING
-      =============================== */
 
       await markEvent(event.id, {
         type: event.type,
@@ -206,10 +200,6 @@ router.post(
 
       await processEvent(event);
 
-      /* ===============================
-         MARK COMPLETED
-      =============================== */
-
       await markEvent(event.id, {
         type: event.type,
         status: "completed",
@@ -217,7 +207,6 @@ router.post(
       });
 
       return res.json({ received: true });
-
     } catch (err) {
       console.error("Webhook error:", err);
 
@@ -229,13 +218,13 @@ router.post(
         });
       }
 
-      await sendTelegram(
+      sendTelegram(
         `❌ *STRIPE WEBHOOK ERROR*\n\n${err.message}`
       );
 
       return res.status(500).json({
         success: false,
-        error: "Webhook failed",
+        error: "webhook_failed",
       });
     }
   }
