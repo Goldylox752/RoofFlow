@@ -26,19 +26,20 @@ app.use(express.json({ limit: "1mb" }));
 const bot = new TelegramBot(token);
 
 /* ===============================
-   WEBHOOK PATH (SECURE STATIC ROUTE)
+   WEBHOOK PATH (SECURE)
 =============================== */
 const webhookPath = "/telegram-webhook";
 const fullWebhookUrl = `${webhookUrl}${webhookPath}`;
 
 /* ===============================
-   TELEGRAM COMMANDS (UI MENU)
+   TELEGRAM COMMAND MENU
 =============================== */
 bot.setMyCommands([
   { command: "start", description: "Start bot" },
   { command: "help", description: "Help menu" },
   { command: "ping", description: "Check bot status" },
-  { command: "profile", description: "View your profile" }
+  { command: "profile", description: "View profile" },
+  { command: "plan", description: "View subscription plan" }
 ]);
 
 /* ===============================
@@ -56,8 +57,8 @@ async function initWebhook() {
 initWebhook();
 
 /* ===============================
-   BASIC SAAS USER STORE (TEMP MEMORY)
-   (Replace with MongoDB later)
+   SAAS USER STORE (IN-MEMORY)
+   Replace with MongoDB in production
 =============================== */
 const users = new Map();
 
@@ -67,7 +68,7 @@ function getOrCreateUser(tgUser) {
   if (!user) {
     user = {
       telegramId: tgUser.id,
-      username: tgUser.username || null,
+      username: tgUser.username || "unknown",
       plan: "free",
       createdAt: new Date()
     };
@@ -79,20 +80,21 @@ function getOrCreateUser(tgUser) {
 }
 
 /* ===============================
-   COMMAND HANDLERS
+   COMMANDS
 =============================== */
 bot.onText(/\/start/, (msg) => {
   const user = getOrCreateUser(msg.from);
 
   bot.sendMessage(
     msg.chat.id,
-    `Welcome ${user.username || "user"}
-Plan: ${user.plan}
+    `Welcome ${user.username}
+
+Your plan: ${user.plan}
 
 Commands:
 /profile
-/help
-/ping`
+/plan
+/help`
   );
 });
 
@@ -103,8 +105,28 @@ bot.onText(/\/profile/, (msg) => {
     msg.chat.id,
     `Profile:
 ID: ${user.telegramId}
-Username: ${user.username || "N/A"}
+Username: ${user.username}
 Plan: ${user.plan}`
+  );
+});
+
+bot.onText(/\/plan/, (msg) => {
+  const user = getOrCreateUser(msg.from);
+
+  bot.sendMessage(
+    msg.chat.id,
+    `Current Plan: ${user.plan}
+
+Upgrade options:
+- free
+- pro (coming soon)`
+  );
+});
+
+bot.onText(/\/help/, (msg) => {
+  bot.sendMessage(
+    msg.chat.id,
+    "Commands:\n/start\n/profile\n/plan\n/help\n/ping"
   );
 });
 
@@ -112,15 +134,8 @@ bot.onText(/\/ping/, (msg) => {
   bot.sendMessage(msg.chat.id, "Pong! Bot is alive.");
 });
 
-bot.onText(/\/help/, (msg) => {
-  bot.sendMessage(
-    msg.chat.id,
-    "Commands:\n/start\n/help\n/ping\n/profile"
-  );
-});
-
 /* ===============================
-   MESSAGE LOGGER (SAFETY FILTERED)
+   MESSAGE HANDLER (SAFE)
 =============================== */
 bot.on("message", (msg) => {
   if (!msg.text || msg.text.startsWith("/")) return;
@@ -142,12 +157,13 @@ app.post(webhookPath, (req, res) => {
 });
 
 /* ===============================
-   HEALTH CHECK (IMPORTANT FOR SAAS)
+   HEALTH CHECK (SAAS MONITORING)
 =============================== */
 app.get("/health", (req, res) => {
   res.json({
     status: "ok",
-    uptime: process.uptime()
+    uptime: process.uptime(),
+    users: users.size
   });
 });
 
