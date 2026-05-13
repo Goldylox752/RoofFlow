@@ -3,34 +3,41 @@ const supabase = require("../../lib/supabase");
 
 /* ===============================
    GET OR CREATE STRIPE CUSTOMER
-   (AUTH-BASED SINGLE SOURCE OF TRUTH)
+   (IDEMPOTENT + PRO SAFE)
 =============================== */
 exports.getOrCreateStripeCustomer = async (user) => {
-  const { id: authId, email } = user;
+  const authId = user?.id;
+  const email = user?.email;
 
   if (!authId || !email) {
-    throw new Error("Missing auth user data");
+    throw new Error("Invalid user: missing authId or email");
   }
 
   /* ===============================
-     1. CHECK EXISTING CUSTOMER
+     1. FETCH EXISTING CUSTOMER
   =============================== */
-  const { data: existing, error } = await supabase
+  const { data, error } = await supabase
     .from("users")
     .select("stripe_customer_id")
     .eq("auth_id", authId)
-    .maybeSingle();
+    .single();
 
-  if (error) {
-    throw new Error("Database error while fetching user");
+  if (error && error.code !== "PGRST116") {
+    console.error("Supabase fetch error:", error);
+    throw new Error("Failed to fetch user");
   }
 
-  if (existing?.stripe_customer_id) {
-    return existing.stripe_customer_id;
+  const existingCustomerId = data?.stripe_customer_id;
+
+  /* ===============================
+     2. RETURN IF EXISTS
+  =============================== */
+  if (existingCustomerId) {
+    return existingCustomerId;
   }
 
   /* ===============================
-     2. CREATE STRIPE CUSTOMER
+     3. CREATE STRIPE CUSTOMER (SAFE)
   =============================== */
   const customer = await stripe.customers.create({
     email,
@@ -40,11 +47,11 @@ exports.getOrCreateStripeCustomer = async (user) => {
   });
 
   if (!customer?.id) {
-    throw new Error("Failed to create Stripe customer");
+    throw new Error("Stripe customer creation failed");
   }
 
   /* ===============================
-     3. SAVE TO DATABASE
+     4. UPDATE DATABASE (ATOMIC STYLE)
   =============================== */
   const { error: updateError } = await supabase
     .from("users")
@@ -56,7 +63,8 @@ exports.getOrCreateStripeCustomer = async (user) => {
     .eq("auth_id", authId);
 
   if (updateError) {
-    throw new Error("Failed to save Stripe customer mapping");
+    console.error("Supabase update error:", updateError);
+    throw new Error("Failed to persist Stripe customer mapping");
   }
 
   return customer.id;
