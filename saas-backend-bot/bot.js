@@ -13,15 +13,16 @@ const {
   STRIPE_SECRET_KEY,
   STRIPE_PRICE_ID,
   STRIPE_WEBHOOK_SECRET,
+  CLIENT_URL,
   PORT = 3000,
 } = process.env;
 
-if (!TELEGRAM_BOT_TOKEN || !WEBHOOK_URL || !STRIPE_SECRET_KEY) {
+if (!TELEGRAM_BOT_TOKEN || !WEBHOOK_URL || !STRIPE_SECRET_KEY || !STRIPE_PRICE_ID) {
   throw new Error("Missing required environment variables");
 }
 
 /* ===============================
-   INIT
+   INIT SERVICES
 =============================== */
 const app = express();
 
@@ -34,11 +35,9 @@ const stripe = new Stripe(STRIPE_SECRET_KEY, {
 const bot = new TelegramBot(TELEGRAM_BOT_TOKEN);
 
 /* ===============================
-   MIDDLEWARE
+   MIDDLEWARE ORDER (IMPORTANT)
 =============================== */
-/* Stripe requires raw body */
 app.use("/stripe-webhook", express.raw({ type: "application/json" }));
-
 app.use(express.json({ limit: "1mb" }));
 
 /* ===============================
@@ -48,7 +47,7 @@ const TELEGRAM_WEBHOOK_PATH = "/telegram-webhook";
 const TELEGRAM_WEBHOOK_URL = `${WEBHOOK_URL}${TELEGRAM_WEBHOOK_PATH}`;
 
 /* ===============================
-   IN-MEMORY DB (replace with Supabase later)
+   DB (IN MEMORY FOR NOW)
 =============================== */
 const users = new Map();
 
@@ -73,7 +72,7 @@ function getUser(tgUser) {
 const isPro = (user) => user.plan === "pro";
 
 /* ===============================
-   TELEGRAM COMMANDS MENU
+   TELEGRAM MENU
 =============================== */
 bot.setMyCommands([
   { command: "start", description: "Start bot" },
@@ -84,7 +83,7 @@ bot.setMyCommands([
 ]);
 
 /* ===============================
-   INIT TELEGRAM WEBHOOK
+   SET TELEGRAM WEBHOOK
 =============================== */
 (async () => {
   try {
@@ -96,22 +95,47 @@ bot.setMyCommands([
 })();
 
 /* ===============================
+   🔥 HIGH-CONVERTING UPGRADE MESSAGE
+=============================== */
+const upgradeMessage = (user) => `
+🔥 PRO ACCESS UNLOCK
+
+You are currently on the FREE plan.
+
+FREE includes:
+• Limited access
+• Basic features only
+
+━━━━━━━━━━━━━━
+
+💎 PRO PLAN ($19/month)
+
+With PRO you get:
+
+⚡ Instant access (no delays)
+🎯 Higher quality results
+🔒 Priority system access
+📈 Better opportunities first
+🚀 Faster workflow
+
+━━━━━━━━━━━━━━
+
+Why upgrade?
+Most users lose opportunities because they are too late.
+
+PRO users go first.
+
+👉 Upgrade instantly here:
+${CLIENT_URL}/checkout?plan=pro
+`;
+
+/* ===============================
    COMMANDS
 =============================== */
 bot.onText(/\/start/, (msg) => {
   const user = getUser(msg.from);
 
-  bot.sendMessage(
-    msg.chat.id,
-    `Welcome ${user.username}
-
-Plan: ${user.plan}
-
-Commands:
-/profile
-/plan
-/upgrade`
-  );
+  bot.sendMessage(msg.chat.id, upgradeMessage(user));
 });
 
 bot.onText(/\/profile/, (msg) => {
@@ -119,7 +143,7 @@ bot.onText(/\/profile/, (msg) => {
 
   bot.sendMessage(
     msg.chat.id,
-    `Profile
+`Profile
 ID: ${user.telegramId}
 Username: ${user.username}
 Plan: ${user.plan}`
@@ -131,18 +155,19 @@ bot.onText(/\/plan/, (msg) => {
 
   bot.sendMessage(
     msg.chat.id,
-    `Current Plan: ${user.plan}
+`Current Plan: ${user.plan}
 
-Free:
+FREE:
 - Basic access
 
 PRO:
-- Full access`
+- Priority access
+- Instant features`
   );
 });
 
 /* ===============================
-   STRIPE CHECKOUT (UPGRADE)
+   STRIPE CHECKOUT
 =============================== */
 bot.onText(/\/upgrade/, async (msg) => {
   const user = getUser(msg.from);
@@ -161,8 +186,10 @@ bot.onText(/\/upgrade/, async (msg) => {
           quantity: 1,
         },
       ],
-      success_url: `${WEBHOOK_URL}/success`,
-      cancel_url: `${WEBHOOK_URL}/cancel`,
+
+      success_url: `${CLIENT_URL}/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${CLIENT_URL}/cancel`,
+
       metadata: {
         telegramId: String(user.telegramId),
       },
@@ -172,7 +199,7 @@ bot.onText(/\/upgrade/, async (msg) => {
 
     bot.sendMessage(
       msg.chat.id,
-      `Upgrade to PRO:\n${session.url}`
+      `💳 Complete your upgrade:\n\n${session.url}`
     );
   } catch (err) {
     console.error("Stripe error:", err);
@@ -208,7 +235,7 @@ app.post("/stripe-webhook", (req, res) => {
 
       bot.sendMessage(
         telegramId,
-        "Payment successful. You are now PRO."
+        "🎉 Payment successful — PRO activated instantly."
       );
     }
   }
