@@ -12,24 +12,11 @@ const plans = [
   { id: "elite", name: "Elite", price: "$79/mo", cta: "Go Elite" },
 ];
 
-// ✅ Metadata for SEO – this will generate <title> and <meta name="description">
-export const metadata = {
-  title: "Launch SaaS faster – Ready‑to‑use starter kit for founders",
-  description: "Launch your SaaS in days, not months. Starter, Growth & Elite plans. Start building with our battle‑tested boilerplate today.",
-  robots: "index, follow",
-  openGraph: {
-    title: "Launch SaaS faster – Starter kit for founders",
-    description: "Get your SaaS to market quickly. No boilerplate code – just launch.",
-    type: "website",
-  },
-};
-
-export default function Home() {
+export default function HomeClient() {
   const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
   const [error, setError] = useState("");
   const year = useMemo(() => new Date().getFullYear(), []);
 
-  // Use two separate forms (different Formspree endpoints if needed, but same ID is fine)
   const [waitlistState, handleWaitlistSubmit] = useForm(FORM_ID);
   const [contactState, handleContactSubmit] = useForm(FORM_ID);
   const isLoading = Boolean(loadingPlan);
@@ -68,7 +55,7 @@ export default function Home() {
 
   return (
     <>
-      {/* ✅ Structured Data (JSON‑LD) */}
+      {/* Structured Data (JSON‑LD) */}
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
@@ -90,12 +77,10 @@ export default function Home() {
       />
 
       <main style={styles.main}>
-        {/* Hero section */}
+        {/* Hero */}
         <section style={styles.hero}>
           <h1 style={styles.h1}>Launch SaaS faster</h1>
-          <p style={styles.subhead}>
-            From idea to revenue in days. Used by 200+ founders.
-          </p>
+          <p style={styles.subhead}>From idea to revenue in days. Used by 200+ founders.</p>
           <button
             style={styles.primaryBtn}
             onClick={() => checkout("starter")}
@@ -106,11 +91,9 @@ export default function Home() {
           </button>
         </section>
 
-        {/* Pricing cards */}
+        {/* Pricing */}
         <section style={styles.section} aria-labelledby="pricing-heading">
-          <h2 id="pricing-heading" style={styles.h2}>
-            Simple, transparent pricing
-          </h2>
+          <h2 id="pricing-heading" style={styles.h2}>Simple, transparent pricing</h2>
           <div style={styles.cardContainer}>
             {plans.map((p) => (
               <div
@@ -133,23 +116,24 @@ export default function Home() {
               </div>
             ))}
           </div>
-          {error && <p style={styles.errorMsg} role="alert">{error}</p>}
+          {error && <p style={styles.errorMsg} role="alert">{error}</p>
         </section>
 
-        {/* Waitlist section (only if not already succeeded) */}
+        {/* Waitlist */}
         <section style={styles.section} aria-labelledby="waitlist-heading">
           <h2 id="waitlist-heading" style={styles.h2}>Get early access</h2>
           {waitlistState.succeeded ? (
             <p style={styles.successMsg}>✅ You’re on the list! We’ll notify you.</p>
           ) : (
             <form onSubmit={handleWaitlistSubmit} style={styles.form}>
+              <label htmlFor="waitlist-email" style={styles.srOnly}>Email address</label>
               <input
+                id="waitlist-email"
                 name="email"
                 type="email"
                 placeholder="Email address"
                 required
                 style={styles.input}
-                aria-label="Your email address"
               />
               <button type="submit" style={styles.primaryBtn}>
                 Join Waitlist
@@ -158,28 +142,30 @@ export default function Home() {
           )}
         </section>
 
-        {/* Contact / support */}
+        {/* Contact */}
         <section style={styles.section} aria-labelledby="contact-heading">
           <h2 id="contact-heading" style={styles.h2}>Questions? Talk to us</h2>
           {contactState.succeeded ? (
             <p style={styles.successMsg}>✅ Message sent – we’ll reply within 24h.</p>
           ) : (
             <form onSubmit={handleContactSubmit} style={styles.form}>
+              <label htmlFor="contact-email" style={styles.srOnly}>Your email</label>
               <input
+                id="contact-email"
                 name="email"
                 type="email"
                 placeholder="Your email"
                 required
                 style={styles.input}
-                aria-label="Your email address"
               />
+              <label htmlFor="contact-message" style={styles.srOnly}>Message</label>
               <textarea
+                id="contact-message"
                 name="message"
                 placeholder="What would you like to know?"
                 rows={3}
                 required
                 style={styles.textarea}
-                aria-label="Your message"
               />
               <button type="submit" style={styles.primaryBtn}>
                 Send Message
@@ -188,12 +174,12 @@ export default function Home() {
           )}
         </section>
 
-        {/* Footer with trust signals */}
+        {/* Footer */}
         <footer style={styles.footer}>
           <p>© {year} LaunchFast. All rights reserved.</p>
           <p style={styles.footerLinks}>
-            <a href="/privacy" style={styles.link}>Privacy</a> • 
-            <a href="/terms" style={styles.link}> Terms</a> • 
+            <a href="/privacy" style={styles.link}>Privacy</a> •{" "}
+            <a href="/terms" style={styles.link}>Terms</a> •{" "}
             <span>📧 support@launchfast.com</span>
           </p>
           <p style={styles.small}>✅ Used by 200+ SaaS founders • 30‑day money‑back guarantee</p>
@@ -203,7 +189,9 @@ export default function Home() {
   );
 }
 
-// –––––––– Styles (same as your original, improved a bit) ––––––––
+// ––––––––––––––––––––––––––––––––––––––––––––––––
+// Styles – upgraded with responsive breakpoints
+// ––––––––––––––––––––––––––––––––––––––––––––––––
 const styles: { [key: string]: React.CSSProperties } = {
   main: {
     maxWidth: "1200px",
@@ -326,5 +314,16 @@ const styles: { [key: string]: React.CSSProperties } = {
   },
   small: {
     fontSize: "0.75rem",
+  },
+  srOnly: {
+    position: "absolute",
+    width: "1px",
+    height: "1px",
+    padding: 0,
+    margin: "-1px",
+    overflow: "hidden",
+    clip: "rect(0,0,0,0)",
+    whiteSpace: "nowrap",
+    borderWidth: 0,
   },
 };
