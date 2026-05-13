@@ -5,15 +5,49 @@ const stripe = require("../lib/stripe");
 const supabase = require("../lib/supabase");
 
 /* ===============================
-   STRIPE WEBHOOK
+   SAFE SUPABASE WRAPPER
+=============================== */
+const db = {
+  upsertUser: async (payload) => {
+    const { error } = await supabase
+      .from("users")
+      .upsert(payload, { onConflict: "email" });
+
+    if (error) throw error;
+  },
+
+  updateUserByCustomer: async (customerId, data) => {
+    const { error } = await supabase
+      .from("users")
+      .update(data)
+      .eq("stripe_customer_id", customerId);
+
+    if (error) throw error;
+  },
+};
+
+/* ===============================
+   SAFE EMAIL EXTRACTOR
+=============================== */
+const getEmail = (session) => {
+  return (
+    session?.customer_details?.email ||
+    session?.customer_email ||
+    session?.metadata?.email ||
+    null
+  );
+};
+
+/* ===============================
+   STRIPE WEBHOOK ROUTE
 =============================== */
 router.post(
   "/",
   express.raw({ type: "application/json" }),
   async (req, res) => {
-    const sig = req.headers["stripe-signature"];
+    const signature = req.headers["stripe-signature"];
 
-    if (!sig) {
+    if (!signature) {
       return res.status(400).json({
         success: false,
         error: "Missing Stripe signature",
@@ -25,123 +59,103 @@ router.post(
     try {
       event = stripe.webhooks.constructEvent(
         req.body,
-        sig,
+        signature,
         process.env.STRIPE_WEBHOOK_SECRET
       );
     } catch (err) {
-      console.error("Invalid webhook signature:", err.message);
+      console.error("Webhook signature verification failed:", err.message);
+
       return res.status(400).json({
         success: false,
         error: "Invalid signature",
       });
     }
 
-    console.log("Stripe event:", event.type);
+    const type = event.type;
+    const data = event.data.object;
 
-    /* ===============================
-       1. CHECKOUT SUCCESS (NEW USER)
-    =============================== */
-    if (event.type === "checkout.session.completed") {
-      const session = event.data.object;
+    try {
+      /* ===============================
+         CHECKOUT COMPLETED
+      =============================== */
+      if (type === "checkout.session.completed") {
+        const email = getEmail(data);
 
-      const email =
-        session.customer_details?.email ||
-        session.customer_email ||
-        session.metadata?.email;
+        if (!email) return res.json({ received: true });
 
-      const name = session.metadata?.name || "Unknown";
-      const plan = session.metadata?.plan || "starter";
+        const payload = {
+          email: email.toLowerCase().trim(),
+          name: data.metadata?.name || "Unknown",
+          plan: data.metadata?.plan || "starter",
+          status: "active",
 
-      if (!email) return res.json({ received: true });
+          stripe_customer_id: data.customer,
+          stripe_session_id: data.id,
 
-      const cleanEmail = email.toLowerCase().trim();
+          activated_at: new Date().toISOString(),
+        };
 
-      await supabase.from("users").upsert(
-        [
-          {
-            email: cleanEmail,
-            name,
-            plan,
-            status: "active",
+        await db.upsertUser([payload]);
 
-            stripe_customer_id: session.customer,
-            stripe_session_id: session.id,
+        console.log("User activated:", email);
+      }
 
-            activated_at: new Date().toISOString(),
-          },
-        ],
-        { onConflict: "email" }
-      );
+      /* ===============================
+         SUBSCRIPTION CREATED / UPDATED
+      =============================== */
+      if (
+        type === "customer.subscription.created" ||
+        type === "customer.subscription.updated"
+      ) {
+        const plan =
+          data?.items?.data?.[0]?.price?.nickname ||
+          data?.items?.data?.[0]?.price?.id ||
+          "starter";
 
-      console.log("User activated:", cleanEmail);
-    }
-
-    /* ===============================
-       2. SUBSCRIPTION CREATED / UPDATED
-    =============================== */
-    if (
-      event.type === "customer.subscription.created" ||
-      event.type === "customer.subscription.updated"
-    ) {
-      const sub = event.data.object;
-
-      const customerId = sub.customer;
-      const status = sub.status;
-
-      const plan =
-        sub.items?.data?.[0]?.price?.nickname ||
-        sub.items?.data?.[0]?.price?.id ||
-        "starter";
-
-      await supabase
-        .from("users")
-        .update({
+        await db.updateUserByCustomer(data.customer, {
           plan,
-          status: status === "active" ? "active" : "inactive",
-          stripe_subscription_id: sub.id,
-        })
-        .eq("stripe_customer_id", customerId);
+          status: data.status === "active" ? "active" : "inactive",
+          stripe_subscription_id: data.id,
+        });
 
-      console.log("Subscription synced:", customerId);
-    }
+        console.log("Subscription synced:", data.customer);
+      }
 
-    /* ===============================
-       3. SUBSCRIPTION CANCELED
-    =============================== */
-    if (event.type === "customer.subscription.deleted") {
-      const sub = event.data.object;
-
-      await supabase
-        .from("users")
-        .update({
+      /* ===============================
+         SUBSCRIPTION CANCELED
+      =============================== */
+      if (type === "customer.subscription.deleted") {
+        await db.updateUserByCustomer(data.customer, {
           status: "canceled",
           plan: "starter",
-        })
-        .eq("stripe_customer_id", sub.customer);
+        });
 
-      console.log("Subscription canceled:", sub.customer);
-    }
+        console.log("Subscription canceled:", data.customer);
+      }
 
-    /* ===============================
-       4. PAYMENT FAILED
-    =============================== */
-    if (event.type === "invoice.payment_failed") {
-      const invoice = event.data.object;
-
-      await supabase
-        .from("users")
-        .update({
+      /* ===============================
+         PAYMENT FAILED
+      =============================== */
+      if (type === "invoice.payment_failed") {
+        await db.updateUserByCustomer(data.customer, {
           status: "past_due",
-        })
-        .eq("stripe_customer_id", invoice.customer);
+        });
 
-      console.log("Payment failed:", invoice.customer);
+        console.log("Payment failed:", data.customer);
+      }
+
+      /* ===============================
+         ACK STRIPE
+      =============================== */
+      return res.json({ received: true });
+    } catch (err) {
+      console.error("Webhook handler error:", err);
+
+      return res.status(500).json({
+        success: false,
+        error: "Webhook processing failed",
+      });
     }
-
-    /* ===============================
-       ALWAYS ACKNOWLEDGE STRIPE
-    =============================== */
-    return res.json({ received: true });
   }
 );
 
