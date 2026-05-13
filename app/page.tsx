@@ -14,19 +14,12 @@ export default function HomePage() {
   return (
     <main className="min-h-screen bg-background text-foreground">
       <Navbar />
-
       <Hero go={go} />
-
       <TrustBar />
-
       <ProblemSolution />
-
       <Features />
-
       <Pricing go={go} />
-
       <CTA go={go} />
-
       <Footer />
     </main>
   );
@@ -35,16 +28,16 @@ export default function HomePage() {
 /* ================= NAV ================= */
 function Navbar() {
   return (
-    <header className="border-b">
+    <header className="sticky top-0 z-50 border-b bg-background/70 backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
-        <div className="font-bold">LaunchKit</div>
+        <div className="font-semibold tracking-tight">LaunchKit</div>
 
-        <nav className="hidden gap-6 text-sm opacity-70 md:flex">
-          <a href="#features">Features</a>
-          <a href="#pricing">Pricing</a>
+        <nav className="hidden gap-8 text-sm text-muted-foreground md:flex">
+          <a className="hover:text-foreground" href="#features">Features</a>
+          <a className="hover:text-foreground" href="#pricing">Pricing</a>
         </nav>
 
-        <Button size="sm">Get Started</Button>
+        <Button size="sm">Sign in</Button>
       </div>
     </header>
   );
@@ -53,33 +46,67 @@ function Navbar() {
 /* ================= HERO ================= */
 function Hero({ go }: any) {
   return (
-    <section className="mx-auto max-w-4xl px-6 py-24 text-center">
-      <div className="mb-4 text-xs uppercase tracking-widest text-muted-foreground">
-        Built for modern SaaS founders
+    <section className="relative overflow-hidden">
+      <div className="absolute inset-0 -z-10 bg-gradient-to-b from-muted/40 to-background" />
+
+      <div className="mx-auto grid max-w-6xl grid-cols-1 items-center gap-12 px-6 py-28 md:grid-cols-2">
+        {/* LEFT */}
+        <div>
+          <p className="text-xs uppercase tracking-widest text-muted-foreground">
+            Built for SaaS founders
+          </p>
+
+          <h1 className="mt-4 text-5xl font-semibold leading-tight tracking-tight md:text-6xl">
+            Launch your SaaS
+            <br />
+            without rebuilding infrastructure
+          </h1>
+
+          <p className="mt-6 text-lg text-muted-foreground">
+            Auth, Stripe billing, subscriptions, feature gating, and backend
+            architecture—already built and production-ready.
+          </p>
+
+          <div className="mt-8 flex gap-3">
+            <Button size="lg" onClick={() => go("starter")}>
+              Start building
+            </Button>
+            <Button size="lg" variant="outline">
+              View demo
+            </Button>
+          </div>
+
+          <p className="mt-4 text-xs text-muted-foreground">
+            Deploy in minutes. No setup required.
+          </p>
+        </div>
+
+        {/* RIGHT MOCK */}
+        <div className="relative">
+          <div className="rounded-2xl border bg-muted/30 p-6 shadow-xl">
+            <p className="text-sm font-medium">Live Dashboard</p>
+
+            <div className="mt-6 space-y-3 text-sm text-muted-foreground">
+              <div className="flex justify-between">
+                <span>MRR</span>
+                <span className="text-foreground">$4,320</span>
+              </div>
+
+              <div className="flex justify-between">
+                <span>Users</span>
+                <span className="text-foreground">1,284</span>
+              </div>
+
+              <div className="flex justify-between">
+                <span>Stripe</span>
+                <span className="text-green-500">Active</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="absolute -inset-10 -z-10 bg-indigo-500/10 blur-3xl" />
+        </div>
       </div>
-
-      <h1 className="text-4xl font-bold leading-tight md:text-6xl">
-        Ship your SaaS faster than ever before
-      </h1>
-
-      <p className="mt-6 text-lg text-muted-foreground">
-        Everything you need is already built: authentication, Stripe billing,
-        subscriptions, and scalable backend architecture.
-      </p>
-
-      <div className="mt-8 flex justify-center gap-3">
-        <Button size="lg" onClick={() => go("starter")}>
-          Start for $9/mo
-        </Button>
-
-        <Button variant="outline" size="lg" onClick={() => go("growth")}>
-          View plans
-        </Button>
-      </div>
-
-      <p className="mt-4 text-xs text-muted-foreground">
-        No setup. No boilerplate. Launch in minutes.
-      </p>
     </section>
   );
 }
@@ -87,39 +114,33 @@ function Hero({ go }: any) {
 /* ================= TRUST ================= */
 function TrustBar() {
   return (
-    <section className="border-y bg-muted/30 py-10 text-center text-sm text-muted-foreground">
-      Used by indie hackers and startups building real SaaS products
+    <section className="border-y py-10 text-center text-sm text-muted-foreground">
+      Trusted by indie hackers building real SaaS products
     </section>
   );
 }
 
-/* ============== PROBLEM / SOLUTION ============== */
+/* ================= PROBLEM / SOLUTION ================= */
 function ProblemSolution() {
   return (
-    <section className="mx-auto grid max-w-6xl gap-10 px-6 py-20 md:grid-cols-2">
+    <section className="mx-auto grid max-w-6xl gap-10 px-6 py-24 md:grid-cols-2">
       <Card className="p-6">
-        <h3 className="mb-4 text-lg font-semibold text-red-400">
-          What slows you down
-        </h3>
-
-        <ul className="space-y-2 text-sm text-muted-foreground">
-          <li>Rebuilding auth systems from scratch</li>
-          <li>Complex Stripe integration setup</li>
-          <li>No subscription or billing logic</li>
-          <li>Messy backend architecture decisions</li>
+        <h3 className="text-lg font-semibold text-red-400">Before</h3>
+        <ul className="mt-4 space-y-2 text-sm text-muted-foreground">
+          <li>Building auth from scratch</li>
+          <li>Complex Stripe setup</li>
+          <li>No billing system</li>
+          <li>Messy backend structure</li>
         </ul>
       </Card>
 
       <Card className="p-6">
-        <h3 className="mb-4 text-lg font-semibold text-green-400">
-          What you get instead
-        </h3>
-
-        <ul className="space-y-2 text-sm text-muted-foreground">
-          <li>Fully built authentication system</li>
-          <li>Stripe subscriptions ready to go</li>
-          <li>Plan-based feature control</li>
-          <li>Production-ready backend structure</li>
+        <h3 className="text-lg font-semibold text-green-400">After</h3>
+        <ul className="mt-4 space-y-2 text-sm text-muted-foreground">
+          <li>Ready-to-use authentication</li>
+          <li>Stripe billing integrated</li>
+          <li>Plan-based access control</li>
+          <li>Scalable backend architecture</li>
         </ul>
       </Card>
     </section>
@@ -129,25 +150,25 @@ function ProblemSolution() {
 /* ================= FEATURES ================= */
 function Features() {
   const items = [
-    ["Authentication", "JWT + session management built-in"],
-    ["Billing", "Stripe subscriptions + webhooks ready"],
-    ["Feature Control", "Restrict features by plan"],
-    ["Pricing Engine", "Dynamic pricing system included"],
-    ["Security", "Rate limiting + middleware protection"],
-    ["Scalable Backend", "Clean Express architecture"],
+    ["Authentication", "JWT + sessions included"],
+    ["Billing", "Stripe subscriptions ready"],
+    ["Feature gating", "Control access by plan"],
+    ["Pricing engine", "Dynamic monetization logic"],
+    ["Security", "Rate limiting + middleware"],
+    ["Backend", "Scalable Express architecture"],
   ];
 
   return (
-    <section className="mx-auto max-w-6xl px-6 py-20">
-      <h2 className="text-center text-3xl font-bold">
-        Everything included out of the box
+    <section id="features" className="mx-auto max-w-6xl px-6 py-24">
+      <h2 className="text-center text-3xl font-semibold">
+        Everything you need to launch
       </h2>
 
-      <div className="mt-10 grid gap-4 md:grid-cols-3">
+      <div className="mt-12 grid gap-6 md:grid-cols-3">
         {items.map(([title, desc]) => (
-          <Card key={title} className="p-5">
-            <h3 className="font-semibold">{title}</h3>
-            <p className="mt-2 text-sm text-muted-foreground">{desc}</p>
+          <Card key={title} className="p-6 transition hover:-translate-y-1">
+            <div className="font-medium">{title}</div>
+            <div className="mt-2 text-sm text-muted-foreground">{desc}</div>
           </Card>
         ))}
       </div>
@@ -158,24 +179,28 @@ function Features() {
 /* ================= PRICING ================= */
 function Pricing({ go }: any) {
   return (
-    <section id="pricing" className="mx-auto max-w-6xl px-6 py-20">
-      <h2 className="text-center text-3xl font-bold">Simple pricing</h2>
+    <section id="pricing" className="mx-auto max-w-6xl px-6 py-24">
+      <h2 className="text-center text-3xl font-semibold">Simple pricing</h2>
 
-      <div className="mt-10 grid gap-6 md:grid-cols-3">
+      <div className="mt-12 grid gap-6 md:grid-cols-3">
         <Plan title="Starter" price="$9" go={() => go("starter")} />
-        <Plan title="Growth" price="$29" go={() => go("growth")} />
+        <Plan title="Growth" price="$29" highlight go={() => go("growth")} />
         <Plan title="Elite" price="$79" go={() => go("elite")} />
       </div>
     </section>
   );
 }
 
-function Plan({ title, price, go }: any) {
+function Plan({ title, price, go, highlight }: any) {
   return (
-    <Card className="p-6 text-center">
-      <h3 className="text-lg font-semibold">{title}</h3>
+    <Card
+      className={`p-8 text-center transition ${
+        highlight ? "border-primary scale-105 shadow-xl" : ""
+      }`}
+    >
+      <div className="font-medium">{title}</div>
 
-      <p className="mt-4 text-3xl font-bold">{price}</p>
+      <div className="mt-4 text-4xl font-semibold">{price}</div>
       <p className="text-xs text-muted-foreground">per month</p>
 
       <Button className="mt-6 w-full" onClick={go}>
@@ -188,16 +213,16 @@ function Plan({ title, price, go }: any) {
 /* ================= CTA ================= */
 function CTA({ go }: any) {
   return (
-    <section className="py-24 text-center">
-      <h2 className="text-3xl font-bold">
-        Launch your SaaS in minutes, not months
+    <section className="py-28 text-center">
+      <h2 className="text-4xl font-semibold tracking-tight">
+        Start building your SaaS today
       </h2>
 
       <p className="mt-4 text-muted-foreground">
-        Stop building infrastructure. Start building your product.
+        Focus on your product—not infrastructure.
       </p>
 
-      <Button className="mt-6" size="lg" onClick={() => go("starter")}>
+      <Button className="mt-8" size="lg" onClick={() => go("starter")}>
         Start now
       </Button>
     </section>
