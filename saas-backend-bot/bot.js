@@ -22,7 +22,7 @@ if (!TELEGRAM_BOT_TOKEN || !WEBHOOK_URL || !STRIPE_SECRET_KEY || !STRIPE_PRICE_I
 }
 
 /* ===============================
-   INIT SERVICES
+   INIT
 =============================== */
 const app = express();
 
@@ -35,19 +35,19 @@ const stripe = new Stripe(STRIPE_SECRET_KEY, {
 const bot = new TelegramBot(TELEGRAM_BOT_TOKEN);
 
 /* ===============================
-   MIDDLEWARE ORDER (IMPORTANT)
+   MIDDLEWARE
 =============================== */
 app.use("/stripe-webhook", express.raw({ type: "application/json" }));
 app.use(express.json({ limit: "1mb" }));
 
 /* ===============================
-   WEBHOOK PATHS
+   WEBHOOKS
 =============================== */
-const TELEGRAM_WEBHOOK_PATH = "/telegram-webhook";
-const TELEGRAM_WEBHOOK_URL = `${WEBHOOK_URL}${TELEGRAM_WEBHOOK_PATH}`;
+const TG_PATH = "/telegram-webhook";
+const TG_URL = `${WEBHOOK_URL}${TG_PATH}`;
 
 /* ===============================
-   DB (IN MEMORY FOR NOW)
+   IN-MEMORY USERS (replace with Supabase later)
 =============================== */
 const users = new Map();
 
@@ -56,98 +56,79 @@ function getUser(tgUser) {
 
   if (!user) {
     user = {
-      telegramId: tgUser.id,
+      id: tgUser.id,
       username: tgUser.username || "unknown",
       plan: "free",
       stripeSessionId: null,
       createdAt: Date.now(),
+      lastActive: Date.now(),
     };
 
     users.set(tgUser.id, user);
   }
 
+  user.lastActive = Date.now();
   return user;
 }
 
-const isPro = (user) => user.plan === "pro";
+const isPro = (u) => u.plan === "pro";
 
 /* ===============================
    TELEGRAM MENU
 =============================== */
 bot.setMyCommands([
-  { command: "start", description: "Start bot" },
-  { command: "profile", description: "View profile" },
+  { command: "start", description: "Start" },
   { command: "plan", description: "View plan" },
+  { command: "profile", description: "Profile" },
   { command: "upgrade", description: "Upgrade to PRO" },
-  { command: "help", description: "Help menu" },
+  { command: "help", description: "Help" },
 ]);
 
 /* ===============================
-   SET TELEGRAM WEBHOOK
+   CONVERSION MESSAGE SYSTEM
 =============================== */
-(async () => {
-  try {
-    await bot.setWebHook(TELEGRAM_WEBHOOK_URL);
-    console.log("Telegram webhook set:", TELEGRAM_WEBHOOK_URL);
-  } catch (err) {
-    console.error("Webhook setup failed:", err);
-  }
-})();
 
-/* ===============================
-   🔥 HIGH-CONVERTING UPGRADE MESSAGE
-=============================== */
-const upgradeMessage = (user) => `
-🔥 PRO ACCESS UNLOCK
+function salesMessage(user) {
+  return `
+🔥 YOUR ACCOUNT IS ACTIVE
+
+Hi @${user.username}
 
 You are currently on the FREE plan.
 
-FREE includes:
+━━━━━━━━━━━━━━
+FREE LIMITS:
 • Limited access
-• Basic features only
-
+• Lower priority
+• Basic results only
 ━━━━━━━━━━━━━━
 
-💎 PRO PLAN ($19/month)
+💎 PRO PLAN — $19/month
 
-With PRO you get:
-
-⚡ Instant access (no delays)
-🎯 Higher quality results
-🔒 Priority system access
-📈 Better opportunities first
-🚀 Faster workflow
+UNLOCK EVERYTHING:
+⚡ Instant priority access
+🎯 Higher quality results first
+🚀 Faster processing
+🔒 Exclusive system access
+📈 More opportunities per day
 
 ━━━━━━━━━━━━━━
+WHY PEOPLE UPGRADE:
+Users on PRO consistently get better results because they act first.
 
-Why upgrade?
-Most users lose opportunities because they are too late.
-
-PRO users go first.
-
-👉 Upgrade instantly here:
+👉 Upgrade here:
 ${CLIENT_URL}/checkout?plan=pro
 `;
+}
 
 /* ===============================
-   COMMANDS
+   TELEGRAM COMMANDS
 =============================== */
+
 bot.onText(/\/start/, (msg) => {
   const user = getUser(msg.from);
 
-  bot.sendMessage(msg.chat.id, upgradeMessage(user));
-});
-
-bot.onText(/\/profile/, (msg) => {
-  const user = getUser(msg.from);
-
-  bot.sendMessage(
-    msg.chat.id,
-`Profile
-ID: ${user.telegramId}
-Username: ${user.username}
-Plan: ${user.plan}`
-  );
+  bot.sendMessage(msg.chat.id, salesMessage(user));
 });
 
 bot.onText(/\/plan/, (msg) => {
@@ -155,31 +136,48 @@ bot.onText(/\/plan/, (msg) => {
 
   bot.sendMessage(
     msg.chat.id,
-`Current Plan: ${user.plan}
+`PLAN STATUS
+
+Current: ${user.plan.toUpperCase()}
 
 FREE:
 - Basic access
 
 PRO:
-- Priority access
-- Instant features`
+- Priority system access
+- Faster results
+- Full features`
+  );
+});
+
+bot.onText(/\/profile/, (msg) => {
+  const user = getUser(msg.from);
+
+  bot.sendMessage(
+    msg.chat.id,
+`PROFILE
+ID: ${user.id}
+User: ${user.username}
+Plan: ${user.plan}`
   );
 });
 
 /* ===============================
-   STRIPE CHECKOUT
+   UPGRADE FLOW (STRIPE)
 =============================== */
+
 bot.onText(/\/upgrade/, async (msg) => {
   const user = getUser(msg.from);
 
   if (isPro(user)) {
-    return bot.sendMessage(msg.chat.id, "You are already PRO.");
+    return bot.sendMessage(msg.chat.id, "You already have PRO access.");
   }
 
   try {
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
       payment_method_types: ["card"],
+
       line_items: [
         {
           price: STRIPE_PRICE_ID,
@@ -191,7 +189,7 @@ bot.onText(/\/upgrade/, async (msg) => {
       cancel_url: `${CLIENT_URL}/cancel`,
 
       metadata: {
-        telegramId: String(user.telegramId),
+        telegramId: String(user.id),
       },
     });
 
@@ -199,17 +197,20 @@ bot.onText(/\/upgrade/, async (msg) => {
 
     bot.sendMessage(
       msg.chat.id,
-      `💳 Complete your upgrade:\n\n${session.url}`
+      `💳 Complete your upgrade:
+
+${session.url}`
     );
   } catch (err) {
     console.error("Stripe error:", err);
-    bot.sendMessage(msg.chat.id, "Payment error. Try again later.");
+    bot.sendMessage(msg.chat.id, "Payment system error. Try again later.");
   }
 });
 
 /* ===============================
-   STRIPE WEBHOOK
+   STRIPE WEBHOOK (AUTO UPGRADE)
 =============================== */
+
 app.post("/stripe-webhook", (req, res) => {
   let event;
 
@@ -220,22 +221,22 @@ app.post("/stripe-webhook", (req, res) => {
       STRIPE_WEBHOOK_SECRET
     );
   } catch (err) {
-    console.error("Stripe webhook error:", err.message);
+    console.error("Webhook failed:", err.message);
     return res.sendStatus(400);
   }
 
   if (event.type === "checkout.session.completed") {
     const session = event.data.object;
-    const telegramId = Number(session.metadata.telegramId);
+    const userId = Number(session.metadata.telegramId);
 
-    const user = users.get(telegramId);
+    const user = users.get(userId);
 
     if (user) {
       user.plan = "pro";
 
       bot.sendMessage(
-        telegramId,
-        "🎉 Payment successful — PRO activated instantly."
+        userId,
+        "🎉 Payment confirmed — PRO activated instantly."
       );
     }
   }
@@ -246,7 +247,8 @@ app.post("/stripe-webhook", (req, res) => {
 /* ===============================
    TELEGRAM WEBHOOK ENDPOINT
 =============================== */
-app.post(TELEGRAM_WEBHOOK_PATH, (req, res) => {
+
+app.post(TG_PATH, (req, res) => {
   try {
     bot.processUpdate(req.body);
     res.sendStatus(200);
@@ -259,19 +261,21 @@ app.post(TELEGRAM_WEBHOOK_PATH, (req, res) => {
 /* ===============================
    HEALTH CHECK
 =============================== */
+
 app.get("/health", (req, res) => {
-  const allUsers = Array.from(users.values());
+  const all = Array.from(users.values());
 
   res.json({
     status: "ok",
-    totalUsers: allUsers.length,
-    proUsers: allUsers.filter((u) => u.plan === "pro").length,
+    users: all.length,
+    proUsers: all.filter(u => u.plan === "pro").length,
   });
 });
 
 /* ===============================
    START SERVER
 =============================== */
+
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
