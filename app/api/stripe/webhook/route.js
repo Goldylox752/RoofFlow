@@ -6,7 +6,6 @@ const { createClient } = require("@supabase/supabase-js");
 /* ===============================
    ENV SAFETY
 =============================== */
-
 const getEnv = (key) => {
   const val = process.env[key];
   if (!val) throw new Error(`Missing env: ${key}`);
@@ -23,15 +22,21 @@ const supabase = createClient(
 );
 
 /* ===============================
+   SAFE FETCH (NODE COMPAT)
+=============================== */
+const fetchFn =
+  global.fetch ||
+  ((...args) => import("node-fetch").then(({ default: fetch }) => fetch(...args)));
+
+/* ===============================
    TELEGRAM (NON-BLOCKING)
 =============================== */
-
 const sendTelegram = async (text) => {
   const token = process.env.TG_TOKEN;
   const chatId = process.env.TG_CHAT_ID;
   if (!token || !chatId) return;
 
-  fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+  fetchFn(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -43,16 +48,16 @@ const sendTelegram = async (text) => {
 };
 
 /* ===============================
-   IDEMPOTENCY HELPERS
+   IDEMPOTENCY
 =============================== */
-
 async function isProcessed(eventId) {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("stripe_events")
     .select("id")
     .eq("id", eventId)
     .maybeSingle();
 
+  if (error) throw error;
   return !!data;
 }
 
@@ -65,34 +70,35 @@ async function markEvent(eventId, payload) {
 }
 
 /* ===============================
-   CORE BUSINESS LOGIC
+   CORE: CHECKOUT SUCCESS
 =============================== */
-
 async function handleCheckout(session) {
   const metadata = session.metadata || {};
 
-  if (!metadata.leadId || !metadata.plan) {
-    throw new Error("Missing Stripe metadata: leadId or plan");
+  const leadId = metadata.leadId;
+  const plan = metadata.plan;
+
+  if (!leadId || !plan) {
+    throw new Error("Missing Stripe metadata (leadId, plan)");
   }
 
-  const leadId = String(metadata.leadId);
-  const plan = String(metadata.plan);
+  const customerId = session.customer || null;
+  const email = session.customer_details?.email || null;
 
   const updatePayload = {
     paid: true,
     status: "active",
     plan,
 
-    stripe_customer_id: session.customer || null,
-    customer_email: session.customer_details?.email || null,
+    stripe_customer_id: customerId,
+    customer_email: email,
 
     updated_at: new Date().toISOString(),
   };
 
   /* ===============================
-     UPDATE LEAD (SAFE CHECK)
+     UPDATE LEAD
   =============================== */
-
   const { data, error } = await supabase
     .from("leads")
     .update(updatePayload)
@@ -100,38 +106,32 @@ async function handleCheckout(session) {
     .select();
 
   if (error) throw error;
-
   if (!data || data.length === 0) {
-    throw new Error("Lead not found for update");
+    throw new Error(`Lead not found: ${leadId}`);
   }
 
   /* ===============================
      PAYMENT RECORD
   =============================== */
+  await supabase.from("payments").upsert({
+    id: session.id,
+    lead_id: leadId,
 
-  await supabase.from("payments").upsert(
-    {
-      id: session.id,
-      lead_id: leadId,
+    stripe_customer_id: customerId,
+    customer_email: email,
 
-      stripe_customer_id: session.customer || null,
-      customer_email: session.customer_details?.email || null,
+    amount: (session.amount_total || 0) / 100,
+    currency: session.currency || "usd",
+    status: "paid",
 
-      amount: (session.amount_total || 0) / 100,
-      currency: session.currency || "usd",
-      status: "paid",
-
-      created_at: new Date().toISOString(),
-    },
-    { onConflict: "id" }
-  );
+    created_at: new Date().toISOString(),
+  });
 
   /* ===============================
-     TELEGRAM (NON-BLOCKING)
+     TELEGRAM ALERT
   =============================== */
-
   sendTelegram(
-    `💰 *PAYMENT SUCCESS*\n\n` +
+    `💰 *PAYMENT SUCCESS*\n` +
       `Lead: ${leadId}\n` +
       `Plan: ${plan}\n` +
       `Amount: $${(session.amount_total || 0) / 100}`
@@ -139,24 +139,26 @@ async function handleCheckout(session) {
 }
 
 /* ===============================
-   EVENT ROUTER
+   EVENT ROUTER (EXTENSIBLE)
 =============================== */
-
 async function processEvent(event) {
   switch (event.type) {
     case "checkout.session.completed":
       await handleCheckout(event.data.object);
       break;
 
+    case "customer.subscription.deleted":
+      await sendTelegram("⚠️ Subscription cancelled");
+      break;
+
     default:
-      console.log("Unhandled event:", event.type);
+      console.log("Unhandled Stripe event:", event.type);
   }
 }
 
 /* ===============================
    WEBHOOK ROUTE
 =============================== */
-
 router.post(
   "/",
   express.raw({ type: "application/json" }),
@@ -166,25 +168,21 @@ router.post(
     try {
       const signature = req.headers["stripe-signature"];
       if (!signature) {
-        return res.status(400).send("Missing signature");
+        return res.status(400).send("Missing Stripe signature");
       }
 
       /* ===============================
-         VERIFY STRIPE EVENT
+         VERIFY STRIPE SIGNATURE
       =============================== */
-
       event = stripe.webhooks.constructEvent(
         req.body,
         signature,
         getEnv("STRIPE_WEBHOOK_SECRET")
       );
 
-      console.log("Stripe event:", event.type);
-
       /* ===============================
-         IDEMPOTENCY CHECK (STRICT)
+         IDEMPOTENCY CHECK
       =============================== */
-
       if (await isProcessed(event.id)) {
         return res.json({ received: true, duplicate: true });
       }
@@ -197,7 +195,6 @@ router.post(
       /* ===============================
          PROCESS EVENT
       =============================== */
-
       await processEvent(event);
 
       await markEvent(event.id, {
@@ -208,7 +205,7 @@ router.post(
 
       return res.json({ received: true });
     } catch (err) {
-      console.error("Webhook error:", err);
+      console.error("Stripe webhook error:", err);
 
       if (event?.id) {
         await markEvent(event.id, {
@@ -218,9 +215,7 @@ router.post(
         });
       }
 
-      sendTelegram(
-        `❌ *STRIPE WEBHOOK ERROR*\n\n${err.message}`
-      );
+      sendTelegram(`❌ *WEBHOOK ERROR*\n${err.message}`);
 
       return res.status(500).json({
         success: false,
