@@ -7,49 +7,14 @@ const rateLimit = require("express-rate-limit");
 const app = express();
 
 /* ===============================
-   TRUST PROXY (Cloud / Vercel / Render safe)
+   TRUST PROXY (Render / Vercel / VPS safe)
 =============================== */
 app.set("trust proxy", 1);
 
 /* ===============================
-   SECURITY HARDENING
+   SECURITY
 =============================== */
 app.disable("x-powered-by");
-
-/* ===============================
-   RATE LIMITING (anti-spam protection)
-=============================== */
-const limiter = rateLimit({
-  windowMs: 60 * 1000, // 1 minute
-  max: 120, // requests per IP
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-
-app.use(limiter);
-
-/* ===============================
-   CORS CONFIG (production-safe)
-=============================== */
-const allowedOrigins = new Set([
-  process.env.FRONTEND_URL,
-  "http://localhost:3000",
-]);
-
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      if (!origin) return callback(null, true);
-
-      if (allowedOrigins.has(origin)) {
-        return callback(null, true);
-      }
-
-      return callback(new Error("CORS blocked"), false);
-    },
-    credentials: true,
-  })
-);
 
 /* ===============================
    BODY PARSER
@@ -57,39 +22,70 @@ app.use(
 app.use(express.json({ limit: "2mb" }));
 
 /* ===============================
-   REQUEST LOGGER (lightweight)
+   RATE LIMITING
+=============================== */
+const limiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.use(limiter);
+
+/* ===============================
+   CORS (SAFE + NO CRASHES)
+=============================== */
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+  "http://localhost:3000",
+].filter(Boolean);
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      return callback(null, false);
+    },
+    credentials: true,
+  })
+);
+
+/* ===============================
+   REQUEST LOGGER
 =============================== */
 app.use((req, res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
+  console.log(`${req.method} ${req.path}`);
   next();
 });
 
 /* ===============================
-   API ROUTES (LEAD SYSTEM CORE)
+   SAFE ROUTE LOADER (PREVENT CRASHES)
 =============================== */
-
-/**
- * Lead system (your main business logic)
- */
-app.use("/api/leads", require("./routes/leadRoutes"));
-
-/**
- * Webhooks (future integrations)
- */
-app.use("/api/webhook", require("./routes/webhook"));
-
-/**
- * Payments (Stripe or similar)
- */
-app.use("/api/payments", require("./routes/payments"));
-
-/**
- * Telegram bot webhook (AI lead bot sync)
- */
-app.use("/api/telegram", require("./routes/telegramWebhook"));
+const safeRoute = (path) => {
+  try {
+    return require(path);
+  } catch (err) {
+    console.warn(`⚠️ Missing route: ${path}`);
+    return express.Router();
+  }
+};
 
 /* ===============================
-   HEALTH CHECK (monitoring)
+   ROUTES
+=============================== */
+app.use("/api/leads", safeRoute("./routes/leadRoutes"));
+app.use("/api/webhook", safeRoute("./routes/webhook"));
+app.use("/api/payments", safeRoute("./routes/payments"));
+app.use("/api/telegram", safeRoute("./routes/telegramWebhook"));
+
+/* ===============================
+   HEALTH CHECK
 =============================== */
 app.get("/health", (req, res) => {
   res.json({
@@ -102,7 +98,7 @@ app.get("/health", (req, res) => {
 });
 
 /* ===============================
-   ROOT (safe landing)
+   ROOT
 =============================== */
 app.get("/", (req, res) => {
   res.json({
@@ -126,7 +122,7 @@ app.use((req, res) => {
    GLOBAL ERROR HANDLER
 =============================== */
 app.use((err, req, res, next) => {
-  console.error("SERVER ERROR:", err.message || err);
+  console.error("SERVER ERROR:", err);
 
   res.status(500).json({
     success: false,
