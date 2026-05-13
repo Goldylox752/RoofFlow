@@ -2,13 +2,13 @@ require("dotenv").config();
 
 const app = require("./app");
 
-const PORT = Number(process.env.PORT || 3001);
+const PORT = process.env.PORT ? Number(process.env.PORT) : 3001;
 
 /* ===============================
-   BASIC SAFETY CHECKS
+   CONFIG CHECK
 =============================== */
 if (!process.env.PORT) {
-  console.warn("PORT not set — using fallback 3001");
+  console.warn("PORT not set in environment. Using default: 3001");
 }
 
 /* ===============================
@@ -19,16 +19,19 @@ let server;
 const startServer = () => {
   try {
     server = app.listen(PORT, () => {
-      console.log("Server running");
-      console.log("Port:", PORT);
-      console.log("Health: /health");
+      console.log("==================================");
+      console.log("Server running successfully");
+      console.log(`Port: ${PORT}`);
+      console.log("Health endpoint: /health");
+      console.log("API base: /api");
+      console.log("==================================");
     });
 
-    // Stability tuning for proxies / hosting
+    // Improve stability for proxies (Vercel, Render, VPS, etc.)
     server.keepAliveTimeout = 65000;
     server.headersTimeout = 66000;
-  } catch (err) {
-    console.error("Server failed to start:", err);
+  } catch (error) {
+    console.error("Failed to start server:", error);
     process.exit(1);
   }
 };
@@ -38,16 +41,16 @@ startServer();
 /* ===============================
    GRACEFUL SHUTDOWN
 =============================== */
-let shuttingDown = false;
+let isShuttingDown = false;
 
-const shutdown = (signal, err = null) => {
-  if (shuttingDown) return;
-  shuttingDown = true;
+const shutdown = (reason, error = null) => {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
 
-  console.log("Shutdown triggered:", signal);
+  console.log(`Shutdown initiated: ${reason}`);
 
-  if (err) {
-    console.error(err);
+  if (error) {
+    console.error("Shutdown error:", error);
   }
 
   if (!server) {
@@ -60,27 +63,28 @@ const shutdown = (signal, err = null) => {
     process.exit(0);
   });
 
+  // Force exit fallback (prevents hanging processes)
   setTimeout(() => {
-    console.error("Forced shutdown timeout");
+    console.error("Forced shutdown (timeout reached)");
     process.exit(1);
   }, 10000).unref();
 };
 
 /* ===============================
-   ERROR HANDLERS
+   ERROR HANDLING
 =============================== */
-process.on("uncaughtException", (err) => {
+process.on("uncaughtException", (error) => {
   console.error("Uncaught Exception");
-  shutdown("uncaughtException", err);
+  shutdown("uncaughtException", error);
 });
 
-process.on("unhandledRejection", (err) => {
+process.on("unhandledRejection", (error) => {
   console.error("Unhandled Rejection");
-  shutdown("unhandledRejection", err);
+  shutdown("unhandledRejection", error);
 });
 
 /* ===============================
-   SIGNAL HANDLERS
+   SIGNAL HANDLING
 =============================== */
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT", () => shutdown("SIGINT"));
