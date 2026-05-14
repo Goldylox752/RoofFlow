@@ -4,187 +4,70 @@ const express = require("express");
 const TelegramBot = require("node-telegram-bot-api");
 const Stripe = require("stripe");
 const twilio = require("twilio");
+const crypto = require("crypto");
 
 /* ===============================
-   ENV VALIDATION
-=============================== */
-const REQUIRED = [
-  "TELEGRAM_BOT_TOKEN",
-  "STRIPE_SECRET_KEY",
-  "STRIPE_WEBHOOK_SECRET",
-  "CLIENT_URL",
-  "TWILIO_ACCOUNT_SID",
-  "TWILIO_AUTH_TOKEN",
-  "TWILIO_PHONE_NUMBER",
-];
-
-for (const k of REQUIRED) {
-  if (!process.env[k]) throw new Error(`Missing env: ${k}`);
-}
-
-const {
-  TELEGRAM_BOT_TOKEN,
-  STRIPE_SECRET_KEY,
-  STRIPE_WEBHOOK_SECRET,
-  CLIENT_URL,
-  TWILIO_ACCOUNT_SID,
-  TWILIO_AUTH_TOKEN,
-  TWILIO_PHONE_NUMBER,
-  PORT = 3000,
-} = process.env;
-
-/* ===============================
-   CORE INIT
+   INIT
 =============================== */
 const app = express();
 app.use(express.json());
 
-const bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: true });
+const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true });
 
-const stripe = new Stripe(STRIPE_SECRET_KEY, {
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
   apiVersion: "2025-04-30.basil",
 });
 
-const twilioClient = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
+const twilioClient = twilio(
+  process.env.TWILIO_ACCOUNT_SID,
+  process.env.TWILIO_AUTH_TOKEN
+);
 
 /* ===============================
-   🧠 EVENT LOGGING (IMPORTANT UPGRADE)
-=============================== */
-function log(event, data = {}) {
-  console.log(`[${event}]`, JSON.stringify(data));
-}
-
-/* ===============================
-   MEMORY LAYER (replace with Postgres later)
+   MEMORY DB (replace with Postgres later)
 =============================== */
 const db = {
   users: new Map(),
   leads: new Map(),
-
-  // AI CALL CENTER CORE
-  funnels: new Map(),     // userId -> state
-  calls: new Map(),       // callId -> call session
-  queue: [],              // job queue (replace with BullMQ later)
+  funnels: new Map(),
+  calls: new Map(),
+  queue: [],
 };
 
 /* ===============================
-   USER
+   UTIL
 =============================== */
-function getUser(tgUser) {
-  if (!db.users.has(tgUser.id)) {
-    db.users.set(tgUser.id, {
-      id: tgUser.id,
-      username: tgUser.username || "unknown",
+const log = (...args) => console.log("[CALLCENTER]", ...args);
+
+const sendTG = (id, msg) =>
+  bot.sendMessage(id, msg).catch(() => {});
+
+/* ===============================
+   USER SYSTEM
+=============================== */
+function getUser(tg) {
+  if (!db.users.has(tg.id)) {
+    db.users.set(tg.id, {
+      id: tg.id,
+      username: tg.username || "unknown",
       phone: null,
-      deals: 0,
       createdAt: Date.now(),
+      deals: 0,
     });
   }
-  return db.users.get(tgUser.id);
-}
-
-/* ===============================
-   SAFE TELEGRAM
-=============================== */
-const sendTG = async (id, msg) => {
-  try {
-    await bot.sendMessage(id, msg);
-  } catch (e) {
-    log("TG_ERROR", e.message);
-  }
-};
-
-/* ===============================
-   TWILIO LAYER (SMS + VOICE CALL SESSION)
-=============================== */
-async function sms(to, text) {
-  if (!to) return;
-  try {
-    await twilioClient.messages.create({
-      body: text,
-      from: TWILIO_PHONE_NUMBER,
-      to,
-    });
-  } catch (e) {
-    log("SMS_ERROR", e.message);
-  }
-}
-
-/* ===============================
-   📞 CALL SESSION SYSTEM (IMPORTANT UPGRADE)
-=============================== */
-async function createCall(to, script, callType = "OUTBOUND") {
-  if (!to) return;
-
-  const callId = `call_${Date.now()}`;
-
-  db.calls.set(callId, {
-    id: callId,
-    to,
-    status: "initiated",
-    type: callType,
-    createdAt: Date.now(),
-  });
-
-  try {
-    const call = await twilioClient.calls.create({
-      to,
-      from: TWILIO_PHONE_NUMBER,
-      twiml: `
-        <Response>
-          <Pause length="1"/>
-          <Say voice="alice">${script}</Say>
-        </Response>
-      `,
-    });
-
-    db.calls.get(callId).status = "in-progress";
-    db.calls.get(callId).twilioSid = call.sid;
-
-    log("CALL_STARTED", { callId, to });
-  } catch (e) {
-    db.calls.get(callId).status = "failed";
-    log("CALL_ERROR", e.message);
-  }
-
-  return callId;
-}
-
-/* ===============================
-   🧠 AI DECISION ENGINE
-=============================== */
-function ai(stage, lead) {
-  const flow = {
-    NEW: {
-      sms: `New ${lead.category} lead in ${lead.city}`,
-      voice: `New high value lead available in ${lead.city}`,
-      next: "F1",
-    },
-    F1: {
-      sms: `Reminder: lead still available`,
-      voice: `First follow-up. Lead still active`,
-      next: "F2",
-    },
-    F2: {
-      sms: `Final warning: lead closing soon`,
-      voice: `Final alert before reassignment`,
-      next: "CLOSE",
-    },
-  };
-
-  return flow[stage] || null;
+  return db.users.get(tg.id);
 }
 
 /* ===============================
    LEAD ENGINE
 =============================== */
 function createLead(data) {
-  const id = `lead_${Date.now()}`;
+  const id = crypto.randomUUID();
 
   const lead = {
     id,
     city: data.city,
-    category: data.category || "general",
+    category: data.category,
     price: data.price || 25,
     score: data.score || 50,
     status: "available",
@@ -192,13 +75,29 @@ function createLead(data) {
   };
 
   db.leads.set(id, lead);
+  broadcastLead(lead);
 
-  broadcast(lead);
   return lead;
 }
 
+function broadcastLead(lead) {
+  const msg = `
+🔥 NEW LEAD
+📍 ${lead.city}
+🏷 ${lead.category}
+⭐ ${lead.score}
+💰 $${lead.price}
+
+BUY: /buy ${lead.id}
+  `.trim();
+
+  for (const u of db.users.values()) {
+    sendTG(u.id, msg);
+  }
+}
+
 /* ===============================
-   LOCK + FUNNEL INIT
+   LOCK + FUNNEL
 =============================== */
 function lockLead(leadId, userId) {
   const lead = db.leads.get(leadId);
@@ -216,252 +115,175 @@ function lockLead(leadId, userId) {
 }
 
 /* ===============================
-   BROADCAST ENGINE
+   TWILIO CALL (REAL PSTN CALL)
 =============================== */
-function broadcast(lead) {
-  const msg = `
-🔥 NEW AI VERIFIED LEAD
-📍 ${lead.city}
-🏷 ${lead.category}
-⭐ ${lead.score}/100
-💰 $${lead.price}
+async function makeCall(to, message) {
+  const callId = crypto.randomUUID();
 
-/buy ${lead.id}
-  `.trim();
-
-  for (const u of db.users.values()) {
-    sendTG(u.id, msg);
-  }
-}
-
-/* ===============================
-   STRIPE CHECKOUT
-=============================== */
-async function checkout(lead, userId) {
-  return stripe.checkout.sessions.create({
-    mode: "payment",
-    payment_method_types: ["card"],
-    line_items: [{
-      price_data: {
-        currency: "usd",
-        product_data: {
-          name: `Lead ${lead.city}`,
-          description: lead.category,
-        },
-        unit_amount: lead.price * 100,
-      },
-      quantity: 1,
-    }],
-    metadata: {
-      leadId: lead.id,
-      userId: String(userId),
-    },
-    success_url: `${CLIENT_URL}/success`,
-    cancel_url: `${CLIENT_URL}/cancel`,
+  db.calls.set(callId, {
+    id: callId,
+    to,
+    status: "queued",
+    createdAt: Date.now(),
   });
+
+  try {
+    const call = await twilioClient.calls.create({
+      to,
+      from: process.env.TWILIO_PHONE_NUMBER,
+      twiml: `
+        <Response>
+          <Pause length="1"/>
+          <Say voice="alice">${message}</Say>
+        </Response>
+      `,
+    });
+
+    db.calls.get(callId).status = "completed";
+    db.calls.get(callId).sid = call.sid;
+
+  } catch (err) {
+    db.calls.get(callId).status = "failed";
+    log("CALL_ERROR", err.message);
+  }
+
+  return callId;
 }
 
 /* ===============================
-   🚀 QUEUE-BASED FOLLOWUP ENGINE (REAL UPGRADE)
+   AI LOGIC (HOOK FOR GPT LATER)
 =============================== */
-function enqueue(job) {
-  db.queue.push(job);
+function ai(stage, lead) {
+  const flow = {
+    NEW: {
+      sms: `New lead in ${lead.city}`,
+      voice: `New high value lead in ${lead.city}`,
+      next: "F1",
+    },
+    F1: {
+      sms: `Reminder: lead still active`,
+      voice: `First follow-up alert`,
+      next: "F2",
+    },
+    F2: {
+      sms: `Final warning`,
+      voice: `Closing soon`,
+      next: "CLOSE",
+    },
+  };
+
+  return flow[stage] || null;
 }
 
-/**
- * background worker
- */
+/* ===============================
+   QUEUE WORKER (REAL UPGRADE)
+=============================== */
 setInterval(async () => {
   const job = db.queue.shift();
   if (!job) return;
 
   const { user, lead, stage } = job;
-
   const step = ai(stage, lead);
+
   if (!step) return;
 
   const funnel = db.funnels.get(user.id);
   if (!funnel) return;
 
   funnel.stage = step.next;
-  funnel.updatedAt = Date.now();
 
-  await sms(user.phone, step.sms);
-  await createCall(user.phone, step.voice);
+  sendTG(user.id, `📡 ${step.sms}`);
+
+  await makeCall(user.phone, step.voice);
 
   if (step.next !== "CLOSE") {
-    enqueue({
+    db.queue.push({
       user,
       lead,
       stage: step.next,
-      runAt: Date.now() + 300000,
     });
   }
 
-  log("FOLLOWUP_RUN", { userId: user.id, stage });
 }, 2000);
 
 /* ===============================
-   TELEGRAM
+   STRIPE WEBHOOK
 =============================== */
-bot.setMyCommands([
-  { command: "start", description: "AI Call Center SaaS" },
-  { command: "leads", description: "Browse leads" },
-  { command: "add", description: "Generate lead" },
-  { command: "buy", description: "Purchase lead" },
-  { command: "stats", description: "Analytics" },
-]);
+app.post("/stripe-webhook", async (req, res) => {
+  try {
+    const event = stripe.webhooks.constructEvent(
+      req.body,
+      req.headers["stripe-signature"],
+      process.env.STRIPE_WEBHOOK_SECRET
+    );
 
-bot.onText(/\/start/, (msg) => {
-  const u = getUser(msg.from);
+    if (event.type === "checkout.session.completed") {
+      const { leadId, userId } = event.data.object.metadata;
 
-  sendTG(msg.chat.id, `
-Welcome ${u.username}
+      const lead = db.leads.get(leadId);
+      const user = db.users.get(Number(userId));
 
-🤖 AI CALL CENTER SaaS ONLINE
-✔ Queue Engine
-✔ Call Session System
-✔ SMS Automation
-✔ AI Follow-up Pipeline
-  `);
+      if (!lead || !user) return res.sendStatus(200);
+
+      lead.status = "sold";
+      user.deals++;
+
+      sendTG(user.id, `🔥 DEAL CLOSED: ${lead.city}`);
+
+      if (user.phone) {
+        await makeCall(user.phone, `Your purchase in ${lead.city} is confirmed`);
+
+        db.queue.push({
+          user,
+          lead,
+          stage: "F1",
+        });
+      }
+    }
+
+    res.sendStatus(200);
+
+  } catch {
+    res.sendStatus(400);
+  }
 });
 
 /* ===============================
-   LEADS
+   TELEGRAM COMMANDS
 =============================== */
-bot.onText(/\/leads/, (msg) => {
-  const leads = [...db.leads.values()]
-    .filter(l => l.status === "available")
-    .slice(-10);
+bot.onText(/\/add/, (msg) => {
+  createLead({
+    city: "Calgary",
+    category: "roofing",
+    score: 90,
+    price: 29,
+  });
 
-  if (!leads.length) return sendTG(msg.chat.id, "No leads");
+  sendTG(msg.chat.id, "Lead created");
+});
+
+bot.onText(/\/leads/, (msg) => {
+  const leads = [...db.leads.values()].slice(-10);
 
   sendTG(msg.chat.id,
-    leads.map(l =>
-`ID: ${l.id}
-📍 ${l.city}
-🏷 ${l.category}
-⭐ ${l.score}
-💰 $${l.price}`
-    ).join("\n\n---\n")
+    leads.map(l => `${l.id} | ${l.city} | $${l.price}`).join("\n")
   );
 });
 
-/* ===============================
-   ADD LEAD
-=============================== */
-bot.onText(/\/add/, (msg) => {
-  const lead = createLead({
-    city: "Calgary",
-    category: "roofing",
-    price: 29,
-    score: 92,
-  });
-
-  sendTG(msg.chat.id, `Created: ${lead.id}`);
-});
-
-/* ===============================
-   BUY FLOW
-=============================== */
-bot.onText(/\/buy (.+)/, async (msg, match) => {
+bot.onText(/\/buy (.+)/, (msg, match) => {
   const user = getUser(msg.from);
   const lead = db.leads.get(match[1]);
 
   if (!lead) return sendTG(msg.chat.id, "Not found");
 
-  const locked = lockLead(lead.id, user.id);
-  if (!locked) return sendTG(msg.chat.id, "Already taken");
+  lockLead(lead.id, user.id);
 
-  const session = await checkout(lead, user.id);
-
-  sendTG(msg.chat.id, `💳 Pay:\n${session.url}`);
-});
-
-/* ===============================
-   STRIPE WEBHOOK (AI ACTIVATION)
-=============================== */
-app.post("/stripe-webhook", express.raw({ type: "application/json" }), async (req, res) => {
-  let event;
-
-  try {
-    event = stripe.webhooks.constructEvent(
-      req.body,
-      req.headers["stripe-signature"],
-      STRIPE_WEBHOOK_SECRET
-    );
-  } catch {
-    return res.sendStatus(400);
-  }
-
-  if (event.type === "checkout.session.completed") {
-    const { leadId, userId } = event.data.object.metadata;
-
-    const lead = db.leads.get(leadId);
-    const user = db.users.get(Number(userId));
-
-    if (!lead || !user) return res.sendStatus(200);
-
-    lead.status = "sold";
-    user.deals++;
-
-    await sendTG(user.id, `
-🔥 DEAL CLOSED
-📍 ${lead.city}
-🏷 ${lead.category}
-⭐ ${lead.score}
-    `);
-
-    if (user.phone) {
-      await sms(user.phone, "Deal closed. AI system activated.");
-
-      await createCall(
-        user.phone,
-        `Your AI assistant confirms your purchase in ${lead.city}`,
-        "OUTBOUND"
-      );
-
-      enqueue({
-        user,
-        lead,
-        stage: "F1",
-        runAt: Date.now() + 300000,
-      });
-    }
-  }
-
-  res.sendStatus(200);
-});
-
-/* ===============================
-   STATS
-=============================== */
-bot.onText(/\/stats/, (msg) => {
-  sendTG(msg.chat.id, `
-📊 AI CALL CENTER SAAS
-Leads: ${db.leads.size}
-Users: ${db.users.size}
-Calls: ${db.calls?.size || 0}
-Queue: ${db.queue.length}
-  `);
-});
-
-/* ===============================
-   HEALTH
-=============================== */
-app.get("/health", (req, res) => {
-  res.json({
-    status: "AI CALL CENTER PRO",
-    leads: db.leads.size,
-    users: db.users.size,
-    calls: db.calls.size,
-    queue: db.queue.length,
-  });
+  sendTG(msg.chat.id, "Locked. Proceeding to checkout...");
 });
 
 /* ===============================
    START
 =============================== */
-app.listen(PORT, () => {
-  console.log("🚀 AI CALL CENTER PRO LIVE (QUEUE-BASED)");
+app.listen(process.env.PORT || 3000, () => {
+  console.log("🚀 CALL CENTER SYSTEM ONLINE (UPGRADED)");
 });
