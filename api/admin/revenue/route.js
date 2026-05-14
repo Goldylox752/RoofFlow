@@ -3,34 +3,62 @@ import { NextResponse } from "next/server";
 
 export async function GET() {
   try {
+    /**
+     * STEP 1: Fetch only required fields
+     */
     const { data, error } = await supabase
       .from("leads")
       .select("price, status");
 
     if (error) {
       return NextResponse.json(
-        { error: "Failed to fetch leads", details: error.message },
+        {
+          success: false,
+          error: "Database query failed",
+          details: error.message,
+        },
         { status: 500 }
       );
     }
 
     const leads = data ?? [];
 
-    const revenue = leads.reduce((sum, lead) => {
-      const price = typeof lead.price === "number" ? lead.price : 0;
-      return sum + price;
-    }, 0);
+    /**
+     * STEP 2: Safe aggregation (typed + defensive)
+     */
+    let revenue = 0;
+    let billed = 0;
 
-    const billed = leads.filter(
-      (lead) => lead.status === "assigned"
-    ).length;
+    for (const lead of leads) {
+      const price = Number(lead.price) || 0;
+      revenue += price;
 
+      if (lead.status === "assigned") {
+        billed++;
+      }
+    }
+
+    const totalLeads = leads.length;
+
+    /**
+     * STEP 3: Derived SaaS metrics (useful for dashboards)
+     */
+    const avgRevenuePerLead = totalLeads ? revenue / totalLeads : 0;
+    const billedRate = totalLeads ? billed / totalLeads : 0;
+
+    /**
+     * STEP 4: Response
+     */
     return NextResponse.json(
       {
         success: true,
-        revenue,
-        leads: leads.length,
-        billed,
+        metrics: {
+          revenue,
+          leads: totalLeads,
+          billed,
+          avgRevenuePerLead,
+          billedRate,
+        },
       },
       { status: 200 }
     );
@@ -38,7 +66,7 @@ export async function GET() {
     return NextResponse.json(
       {
         success: false,
-        error: "Server error",
+        error: "Internal server error",
         message: err?.message ?? "Unknown error",
       },
       { status: 500 }
