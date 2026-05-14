@@ -1,6 +1,7 @@
 {
   "name": "flow-os-backend",
   "version": "1.0.0",
+  "description": "Backend API for Flow OS (Stripe + Telegram + Supabase automation)",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -17,5 +18,16 @@
     "stripe": "^16.0.0",
     "express-rate-limit": "^7.5.0",
     "node-telegram-bot-api": "^0.66.0"
-  }
+  },
+  "keywords": [
+    "telegram",
+    "stripe",
+    "supabase",
+    "automation",
+    "saas",
+    "backend"
+  ],
+  "author": "",
+  "license": "MIT",
+  "private": true
 }
