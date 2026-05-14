@@ -30,7 +30,7 @@ const {
 } = process.env;
 
 /* ===============================
-   APP INIT
+   APP + SERVICES
 =============================== */
 const app = express();
 
@@ -49,8 +49,7 @@ app.use("/stripe-webhook", express.raw({ type: "application/json" }));
 app.use(express.json({ limit: "1mb" }));
 
 /* ===============================
-   IN-MEMORY STORE (MVP ONLY)
-   Replace with DB later (Supabase/Postgres)
+   MEMORY STORE (MVP)
 =============================== */
 const store = {
   users: new Map(),
@@ -59,7 +58,7 @@ const store = {
 };
 
 /* ===============================
-   USER SERVICE
+   USER CORE
 =============================== */
 function getUser(tgUser) {
   const id = tgUser.id;
@@ -81,23 +80,27 @@ function getUser(tgUser) {
   return user;
 }
 
-const isPro = (user) => user?.plan === "pro";
+const isPro = (u) => u?.plan === "pro";
 
 /* ===============================
    HELPERS
 =============================== */
-const setState = (id, value) => store.state.set(id, value);
+function setState(id, value) {
+  store.state.set(id, value);
+}
 
-const clearTimer = (id) => {
+function clearTimer(id) {
   const t = store.timers.get(id);
   if (t) clearTimeout(t);
   store.timers.delete(id);
-};
+}
 
-const send = (chatId, text) => bot.sendMessage(chatId, text);
+function send(chatId, text) {
+  return bot.sendMessage(chatId, text);
+}
 
 /* ===============================
-   SALES MESSAGE
+   SALES ENGINE (CONVERSION MESSAGE)
 =============================== */
 function salesMessage(user) {
   return `
@@ -109,15 +112,15 @@ Current plan: FREE
 
 FREE:
 - Limited access
-- Lower priority
 - Slower processing
+- Lower priority
 
 PRO — $19/month
 
-UPGRADES:
+BENEFITS:
 - Priority access
 - Faster results
-- Higher success rate
+- Higher conversion rate
 
 Upgrade:
 ${CLIENT_URL}/checkout?plan=pro
@@ -125,7 +128,7 @@ ${CLIENT_URL}/checkout?plan=pro
 }
 
 /* ===============================
-   BOT COMMANDS
+   BOT MENU
 =============================== */
 bot.setMyCommands([
   { command: "start", description: "Start bot" },
@@ -135,7 +138,7 @@ bot.setMyCommands([
 ]);
 
 /* ===============================
-   START FLOW
+   START FLOW (FUNNEL)
 =============================== */
 bot.onText(/\/start/, (msg) => {
   const user = getUser(msg.from);
@@ -146,28 +149,24 @@ bot.onText(/\/start/, (msg) => {
 
   clearTimer(user.id);
 
+  // follow-up 1
   store.timers.set(
     user.id,
     setTimeout(() => {
       const latest = store.users.get(user.id);
       if (!isPro(latest)) {
-        send(
-          msg.chat.id,
-          "Quick question: want faster access and priority results?"
-        );
+        send(msg.chat.id, "Quick question: want faster access?");
       }
     }, 30000)
   );
 
+  // follow-up 2
   store.timers.set(
     user.id,
     setTimeout(() => {
       const latest = store.users.get(user.id);
       if (!isPro(latest)) {
-        send(
-          msg.chat.id,
-          `Still available:\n${CLIENT_URL}/checkout?plan=pro`
-        );
+        send(msg.chat.id, `${CLIENT_URL}/checkout?plan=pro`);
       }
     }, 180000)
   );
@@ -223,10 +222,8 @@ bot.onText(/\/upgrade/, async (msg) => {
       mode: "subscription",
       payment_method_types: ["card"],
       line_items: [{ price: STRIPE_PRICE_ID, quantity: 1 }],
-
       success_url: `${CLIENT_URL}/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${CLIENT_URL}/cancel`,
-
       metadata: {
         telegramId: String(user.id),
       },
@@ -234,10 +231,11 @@ bot.onText(/\/upgrade/, async (msg) => {
 
     user.stripeSessionId = session.id;
 
-    send(msg.chat.id, `Payment link:\n${session.url}`);
+    send(msg.chat.id, `Complete payment:\n${session.url}`);
 
     clearTimer(user.id);
 
+    // abandoned checkout follow-up
     store.timers.set(
       user.id,
       setTimeout(() => {
