@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 
 /* ===============================
-   LEAD SCHEMA (MARKETPLACE CORE)
+   LEAD SCHEMA (SAAS MARKETPLACE CORE)
 =============================== */
 
 const LeadSchema = new mongoose.Schema(
@@ -14,10 +14,25 @@ const LeadSchema = new mongoose.Schema(
     phone: { type: String, trim: true },
 
     city: { type: String, trim: true, index: true },
-    category: { type: String, trim: true, index: true }, // IMPORTANT for marketplace
+    category: { type: String, trim: true, index: true },
 
     /* ===============================
-       LIFECYCLE STATE MACHINE
+       OWNERSHIP (MULTI-TENANT CORE)
+    =============================== */
+    tenant_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Tenant",
+      index: true,
+    },
+
+    source: {
+      type: String,
+      default: "direct",
+      index: true,
+    },
+
+    /* ===============================
+       LIFECYCLE STATE MACHINE (CLEANED)
     =============================== */
     status: {
       type: String,
@@ -25,6 +40,7 @@ const LeadSchema = new mongoose.Schema(
         "new",
         "available",
         "locked",
+        "reserved",
         "sold",
         "assigned",
         "completed",
@@ -40,7 +56,7 @@ const LeadSchema = new mongoose.Schema(
     =============================== */
     score: {
       type: Number,
-      default: 5,
+      default: 50,
       min: 1,
       max: 100,
       index: true,
@@ -58,51 +74,48 @@ const LeadSchema = new mongoose.Schema(
     },
 
     /* ===============================
-       STRIPE LINKAGE (CRITICAL UPGRADE)
+       STRIPE (FULL PAYMENT LIFECYCLE)
     =============================== */
-    stripe_payment_intent: {
-      type: String,
-      default: null,
-      index: true,
-    },
-
-    paid: {
-      type: Boolean,
-      default: false,
-      index: true,
-    },
-
-    billed_at: {
-      type: Date,
-      default: null,
+    stripe: {
+      payment_intent: { type: String, index: true },
+      checkout_session: { type: String, index: true },
+      customer_id: { type: String, index: true },
+      paid: { type: Boolean, default: false, index: true },
+      paid_at: Date,
     },
 
     /* ===============================
-       MARKETPLACE OWNERSHIP (MULTI-TENANT)
+       BUYER / CONTRACTOR MODEL
     =============================== */
     buyer_id: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
-      default: null,
       index: true,
+      default: null,
     },
 
     assigned_contractor_id: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
-      default: null,
       index: true,
+      default: null,
     },
 
     /* ===============================
-       LOCK SYSTEM (ANTI RACE CONDITIONS)
+       ADVANCED LOCK SYSTEM (ANTI DOUBLE SELL)
     =============================== */
     lock: {
       owner_id: {
         type: mongoose.Schema.Types.ObjectId,
         ref: "User",
-        default: null,
         index: true,
+        default: null,
+      },
+
+      status: {
+        type: String,
+        enum: ["none", "active", "expired"],
+        default: "none",
       },
 
       locked_at: Date,
@@ -114,7 +127,7 @@ const LeadSchema = new mongoose.Schema(
     },
 
     /* ===============================
-       DEDUPLICATION (CRITICAL FOR SCRAPING)
+       DEDUPLICATION (ANTI SPAM / SCRAPING)
     =============================== */
     dedupeKey: {
       type: String,
@@ -123,24 +136,18 @@ const LeadSchema = new mongoose.Schema(
       index: true,
     },
 
-    source: {
-      type: String,
-      default: "direct",
-      index: true,
-    },
-
     /* ===============================
-       CONVERSION TRACKING (SAAS METRICS)
+       FUNNEL ANALYTICS (SAAS GROWTH)
     =============================== */
     funnel: {
-      viewed: { type: Number, default: 0 },
-      clicked: { type: Number, default: 0 },
-      locked: { type: Number, default: 0 },
-      purchased: { type: Number, default: 0 },
+      views: { type: Number, default: 0 },
+      clicks: { type: Number, default: 0 },
+      locks: { type: Number, default: 0 },
+      purchases: { type: Number, default: 0 },
     },
 
     /* ===============================
-       EVENT LOG (AUDIT TRAIL)
+       EVENT STREAM (APPEND ONLY LOG)
     =============================== */
     events: [
       {
@@ -149,23 +156,25 @@ const LeadSchema = new mongoose.Schema(
           enum: [
             "created",
             "viewed",
+            "clicked",
             "locked",
             "unlocked",
+            "reserved",
             "purchased",
+            "paid",
             "assigned",
             "completed",
             "rejected",
           ],
         },
 
-        userId: {
+        actor_id: {
           type: mongoose.Schema.Types.ObjectId,
           ref: "User",
         },
 
         price: Number,
-        city: String,
-        source: String,
+        meta: mongoose.Schema.Types.Mixed,
 
         timestamp: {
           type: Date,
@@ -173,24 +182,36 @@ const LeadSchema = new mongoose.Schema(
         },
       },
     ],
+
+    /* ===============================
+       SOFT DELETE (SAFETY + AUDIT)
+    =============================== */
+    deleted: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
   },
 
   {
     timestamps: true,
+    versionKey: false,
   }
 );
 
 /* ===============================
-   INDEXES (OPTIMIZED FOR MARKETPLACE QUERIES)
+   INDEXES (PRODUCTION OPTIMIZED)
 =============================== */
 LeadSchema.index({ city: 1, status: 1, score: -1 });
-LeadSchema.index({ category: 1, status: 1, price: 1 });
+LeadSchema.index({ category: 1, status: 1, price: -1 });
+LeadSchema.index({ tenant_id: 1, status: 1 });
 LeadSchema.index({ "lock.expires_at": 1 });
 LeadSchema.index({ buyer_id: 1, createdAt: -1 });
 LeadSchema.index({ assigned_contractor_id: 1 });
+LeadSchema.index({ deleted: 1 });
 
 /* ===============================
-   EXPORT SAFE MODEL
+   EXPORT MODEL (SAFE FOR NEXTJS / NODE)
 =============================== */
 export default mongoose.models.Lead ||
   mongoose.model("Lead", LeadSchema);
