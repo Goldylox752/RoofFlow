@@ -6,7 +6,7 @@ const Stripe = require("stripe");
 const supabase = require("./lib/supabase");
 
 /* ===============================
-   ENV GUARD (FAIL FAST)
+   ENV VALIDATION (FAIL FAST)
 =============================== */
 const REQUIRED_ENV = [
   "TELEGRAM_BOT_TOKEN",
@@ -18,7 +18,7 @@ const REQUIRED_ENV = [
 
 for (const key of REQUIRED_ENV) {
   if (!process.env[key]) {
-    throw new Error(`Missing env: ${key}`);
+    throw new Error(`❌ Missing env variable: ${key}`);
   }
 }
 
@@ -32,7 +32,7 @@ const {
 } = process.env;
 
 /* ===============================
-   APP + SERVICES
+   APP + SERVICES INIT
 =============================== */
 const app = express();
 
@@ -42,7 +42,7 @@ const stripe = new Stripe(STRIPE_SECRET_KEY, {
   timeout: 30000,
 });
 
-const bot = new TelegramBot(TELEGRAM_BOT_TOKEN);
+const bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: false });
 
 /* ===============================
    MIDDLEWARE
@@ -51,17 +51,23 @@ app.use("/stripe-webhook", express.raw({ type: "application/json" }));
 app.use(express.json({ limit: "1mb" }));
 
 /* ===============================
-   TELEGRAM SAFE SEND
+   SAFE TELEGRAM SEND
 =============================== */
-function send(chatId, text) {
-  if (!bot) return;
-  return bot.sendMessage(chatId, text);
+async function send(chatId, text) {
+  try {
+    if (!bot) return;
+    await bot.sendMessage(chatId, text);
+  } catch (err) {
+    console.error("Telegram send error:", err.message);
+  }
 }
 
 /* ===============================
-   USER SERVICE (SUPABASE)
+   SUPABASE USER SERVICE
 =============================== */
 async function getOrCreateUser(tgUser) {
+  if (!tgUser?.id) throw new Error("Invalid Telegram user");
+
   const { data: existing, error: findError } = await supabase
     .from("users")
     .select("*")
@@ -89,72 +95,84 @@ async function getOrCreateUser(tgUser) {
   return created;
 }
 
-const isPro = (u) => u?.plan === "pro";
+const isPro = (user) => user?.plan === "pro";
 
 /* ===============================
-   IDEMPOTENCY LOCK (PREVENT DOUBLE PAYMENT UPGRADES)
+   IDEMPOTENCY HANDLERS
 =============================== */
-async function isEventProcessed(sessionId) {
+async function isEventProcessed(eventId) {
   const { data } = await supabase
     .from("stripe_events")
     .select("id")
-    .eq("id", sessionId)
+    .eq("id", eventId)
     .maybeSingle();
 
   return !!data;
 }
 
-async function markEvent(sessionId, payload) {
+async function markEvent(eventId, payload) {
   await supabase.from("stripe_events").upsert({
-    id: sessionId,
+    id: eventId,
     ...payload,
     updated_at: new Date().toISOString(),
   });
 }
 
 /* ===============================
-   TELEGRAM COMMANDS
+   TELEGRAM BOT COMMANDS
 =============================== */
 if (bot) {
   bot.setMyCommands([
     { command: "start", description: "Start bot" },
-    { command: "plan", description: "View plan" },
-    { command: "profile", description: "Profile" },
+    { command: "plan", description: "View plan status" },
+    { command: "profile", description: "View profile" },
     { command: "upgrade", description: "Upgrade to PRO" },
   ]);
 
   bot.onText(/\/start/, async (msg) => {
-    const user = await getOrCreateUser(msg.from);
+    try {
+      const user = await getOrCreateUser(msg.from);
 
-    send(msg.chat.id, `👋 Welcome @${user.username}\nPlan: ${user.plan}`);
+      await send(
+        msg.chat.id,
+        `👋 Welcome @${user.username}\nPlan: ${user.plan}`
+      );
 
-    setTimeout(async () => {
-      const latest = await getOrCreateUser(msg.from);
+      setTimeout(async () => {
+        const latest = await getOrCreateUser(msg.from);
 
-      if (!isPro(latest)) {
-        send(msg.chat.id, "⚡ Upgrade to PRO for faster access & priority results.");
-      }
-    }, 30000);
+        if (!isPro(latest)) {
+          await send(
+            msg.chat.id,
+            "⚡ Upgrade to PRO for faster access & priority results."
+          );
+        }
+      }, 30000);
+    } catch (err) {
+      console.error("/start error:", err);
+    }
   });
 
   bot.onText(/\/profile/, async (msg) => {
-    const user = await getOrCreateUser(msg.from);
+    try {
+      const user = await getOrCreateUser(msg.from);
 
-    send(
-      msg.chat.id,
-      `📌 PROFILE
-ID: ${user.telegram_id}
-User: ${user.username}
-Plan: ${user.plan}`
-    );
+      await send(
+        msg.chat.id,
+        `📌 PROFILE\nID: ${user.telegram_id}\nUser: ${user.username}\nPlan: ${user.plan}`
+      );
+    } catch (err) {
+      console.error("/profile error:", err);
+    }
   });
 
   bot.onText(/\/plan/, async (msg) => {
-    const user = await getOrCreateUser(msg.from);
+    try {
+      const user = await getOrCreateUser(msg.from);
 
-    send(
-      msg.chat.id,
-`💳 PLAN STATUS: ${user.plan}
+      await send(
+        msg.chat.id,
+        `💳 PLAN STATUS: ${user.plan}
 
 FREE:
 - Limited access
@@ -162,18 +180,19 @@ FREE:
 PRO:
 - Priority processing
 - Faster results`
-    );
+      );
+    } catch (err) {
+      console.error("/plan error:", err);
+    }
   });
 
   /* ===============================
-     UPGRADE FLOW (STRIPE CHECKOUT)
+     UPGRADE FLOW (STRIPE)
   =============================== */
   bot.onText(/\/upgrade/, async (msg) => {
-    if (!stripe) return send(msg.chat.id, "Payments not configured");
-
-    const user = await getOrCreateUser(msg.from);
-
     try {
+      const user = await getOrCreateUser(msg.from);
+
       const session = await stripe.checkout.sessions.create({
         mode: "subscription",
         payment_method_types: ["card"],
@@ -183,19 +202,17 @@ PRO:
             quantity: 1,
           },
         ],
-
         success_url: `${CLIENT_URL}/success?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${CLIENT_URL}/cancel`,
-
         metadata: {
           telegramId: String(user.telegram_id),
         },
       });
 
-      send(msg.chat.id, `💳 Complete payment:\n${session.url}`);
+      await send(msg.chat.id, `💳 Complete payment:\n${session.url}`);
     } catch (err) {
       console.error("Stripe error:", err);
-      send(msg.chat.id, "❌ Failed to create checkout session");
+      await send(msg.chat.id, "❌ Failed to create checkout session");
     }
   });
 }
@@ -204,10 +221,6 @@ PRO:
    STRIPE WEBHOOK (PRODUCTION SAFE)
 =============================== */
 app.post("/stripe-webhook", async (req, res) => {
-  if (!stripe || !STRIPE_WEBHOOK_SECRET) {
-    return res.sendStatus(500);
-  }
-
   let event;
 
   try {
@@ -217,7 +230,7 @@ app.post("/stripe-webhook", async (req, res) => {
       STRIPE_WEBHOOK_SECRET
     );
   } catch (err) {
-    console.error("Webhook signature error:", err.message);
+    console.error("❌ Webhook signature error:", err.message);
     return res.sendStatus(400);
   }
 
@@ -239,7 +252,9 @@ app.post("/stripe-webhook", async (req, res) => {
     =============================== */
     if (event.type === "checkout.session.completed") {
       const session = event.data.object;
-      const telegramId = Number(session.metadata.telegramId);
+      const telegramId = Number(session.metadata?.telegramId);
+
+      if (!telegramId) throw new Error("Missing telegramId");
 
       await supabase
         .from("users")
@@ -250,16 +265,14 @@ app.post("/stripe-webhook", async (req, res) => {
         })
         .eq("telegram_id", telegramId);
 
-      send(telegramId, "🎉 PRO ACTIVATED — welcome to premium access");
+      await send(telegramId, "🎉 PRO ACTIVATED — welcome to premium access");
     }
 
-    await markEvent(event.id, {
-      status: "completed",
-    });
+    await markEvent(event.id, { status: "completed" });
 
-    res.sendStatus(200);
+    return res.sendStatus(200);
   } catch (err) {
-    console.error("Webhook processing error:", err);
+    console.error("❌ Webhook processing error:", err);
 
     if (event?.id) {
       await markEvent(event.id, {
@@ -268,7 +281,7 @@ app.post("/stripe-webhook", async (req, res) => {
       });
     }
 
-    res.sendStatus(500);
+    return res.sendStatus(500);
   }
 });
 
