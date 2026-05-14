@@ -3,6 +3,7 @@ require("dotenv").config();
 const express = require("express");
 const TelegramBot = require("node-telegram-bot-api");
 const Stripe = require("stripe");
+const twilio = require("twilio");
 
 /* ===============================
    ENV SAFETY
@@ -11,6 +12,9 @@ const REQUIRED = [
   "TELEGRAM_BOT_TOKEN",
   "STRIPE_SECRET_KEY",
   "CLIENT_URL",
+  "TWILIO_ACCOUNT_SID",
+  "TWILIO_AUTH_TOKEN",
+  "TWILIO_PHONE_NUMBER",
 ];
 
 for (const key of REQUIRED) {
@@ -22,11 +26,14 @@ const {
   STRIPE_SECRET_KEY,
   STRIPE_WEBHOOK_SECRET,
   CLIENT_URL,
+  TWILIO_ACCOUNT_SID,
+  TWILIO_AUTH_TOKEN,
+  TWILIO_PHONE_NUMBER,
   PORT = 3000,
 } = process.env;
 
 /* ===============================
-   INIT
+   INIT SERVICES
 =============================== */
 const app = express();
 
@@ -37,9 +44,13 @@ const stripe = new Stripe(STRIPE_SECRET_KEY, {
 
 const bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: true });
 
+const twilioClient = twilio(
+  TWILIO_ACCOUNT_SID,
+  TWILIO_AUTH_TOKEN
+);
+
 /* ===============================
-   MEMORY STORE (MVP DB)
-   (Replace with Supabase later)
+   MEMORY STORE (MVP)
 =============================== */
 const store = {
   users: new Map(),
@@ -49,7 +60,7 @@ const store = {
 };
 
 /* ===============================
-   USER SYSTEM
+   USER
 =============================== */
 function getUser(tgUser) {
   const id = tgUser.id;
@@ -58,6 +69,7 @@ function getUser(tgUser) {
     store.users.set(id, {
       id,
       username: tgUser.username || "unknown",
+      phone: null, // optional future upgrade
       createdAt: Date.now(),
       purchases: 0,
     });
@@ -67,15 +79,13 @@ function getUser(tgUser) {
 }
 
 /* ===============================
-   LEAD CREATION (CORE INVENTORY)
+   LEADS
 =============================== */
 function createLead(data) {
   const id = `lead_${Date.now()}`;
 
   const lead = {
     id,
-    name: data.name || "Unknown",
-    phone: data.phone || null,
     city: data.city,
     category: data.category || "general",
     price: data.price || 25,
@@ -85,50 +95,41 @@ function createLead(data) {
   };
 
   store.leads.set(id, lead);
-
   broadcastLead(lead);
 
   return lead;
 }
 
 /* ===============================
-   LOCK SYSTEM (ANTI DOUBLE BUY)
+   LOCK SYSTEM
 =============================== */
 function lockLead(leadId, userId) {
   const lead = store.leads.get(leadId);
-  if (!lead) return null;
-
-  if (lead.status !== "available") return null;
-
-  const now = Date.now();
+  if (!lead || lead.status !== "available") return null;
 
   lead.status = "locked";
   lead.lockedBy = userId;
-  lead.lockedAt = now;
-  lead.lockExpires = now + 10 * 60 * 1000;
+  lead.lockedAt = Date.now();
+  lead.lockExpires = Date.now() + 10 * 60 * 1000;
 
-  store.locks.set(leadId, {
-    userId,
-    expires: lead.lockExpires,
-  });
+  store.locks.set(leadId, userId);
 
   return lead;
 }
 
 /* ===============================
-   BROADCAST SYSTEM (SALES ENGINE)
+   BROADCAST
 =============================== */
 function broadcastLead(lead) {
   const msg = `
-🔥 NEW HIGH-QUALITY LEAD
+🔥 NEW LEAD
 
-📍 City: ${lead.city}
-🏷 Category: ${lead.category}
-⭐ Score: ${lead.score}/100
-💰 Price: $${lead.price}
+📍 ${lead.city}
+🏷 ${lead.category}
+⭐ ${lead.score}
+💰 $${lead.price}
 
-⚡ First come, first served
-Buy instantly:
+BUY:
 /buy ${lead.id}
   `.trim();
 
@@ -144,59 +145,63 @@ async function createCheckout(lead, userId) {
   return stripe.checkout.sessions.create({
     mode: "payment",
     payment_method_types: ["card"],
-
     line_items: [
       {
         price_data: {
           currency: "usd",
           product_data: {
-            name: `Lead (${lead.city})`,
-            description: `${lead.category} lead - Score ${lead.score}`,
+            name: `Lead ${lead.city}`,
+            description: lead.category,
           },
           unit_amount: lead.price * 100,
         },
         quantity: 1,
       },
     ],
-
     metadata: {
       leadId: lead.id,
       userId: String(userId),
     },
-
     success_url: `${CLIENT_URL}/success`,
     cancel_url: `${CLIENT_URL}/cancel`,
   });
 }
 
 /* ===============================
-   COMMANDS
+   TWILIO SMS DELIVERY (NEW)
 =============================== */
-bot.setMyCommands([
-  { command: "start", description: "Start" },
-  { command: "leads", description: "View leads" },
-  { command: "buy", description: "Buy lead" },
-  { command: "add", description: "Test lead" },
-  { command: "stats", description: "Stats" },
-]);
+async function sendSMS(userPhone, message) {
+  if (!userPhone) return;
+
+  try {
+    await twilioClient.messages.create({
+      body: message,
+      from: TWILIO_PHONE_NUMBER,
+      to: userPhone,
+    });
+  } catch (err) {
+    console.error("Twilio error:", err.message);
+  }
+}
 
 /* ===============================
-   START FLOW (SALES FUNNEL)
+   TELEGRAM COMMANDS
 =============================== */
+bot.setMyCommands([
+  { command: "start", description: "Start bot" },
+  { command: "leads", description: "View leads" },
+  { command: "add", description: "Test lead" },
+  { command: "buy", description: "Buy lead" },
+]);
+
 bot.onText(/\/start/, (msg) => {
   const user = getUser(msg.from);
 
   bot.sendMessage(
     msg.chat.id,
-`
-Welcome ${user.username}
+`Welcome ${user.username}
 
-🚀 Lead Marketplace Active
-- High-quality verified leads
-- Instant purchase via Stripe
-
-Type /leads to see available leads
-`
+🔥 Lead Marketplace Active`
   );
 });
 
@@ -209,18 +214,18 @@ bot.onText(/\/leads/, (msg) => {
     .slice(-10);
 
   if (!leads.length) {
-    return bot.sendMessage(msg.chat.id, "No leads available right now.");
+    return bot.sendMessage(msg.chat.id, "No leads available");
   }
 
-  const text = leads.map(l => `
-ID: ${l.id}
+  bot.sendMessage(
+    msg.chat.id,
+    leads.map(l =>
+`ID: ${l.id}
 📍 ${l.city}
 🏷 ${l.category}
-⭐ ${l.score}
-💰 $${l.price}
-`).join("\n----------------\n");
-
-  bot.sendMessage(msg.chat.id, text);
+💰 $${l.price}`
+    ).join("\n\n---\n")
+  );
 });
 
 /* ===============================
@@ -234,11 +239,11 @@ bot.onText(/\/add/, (msg) => {
     score: 85,
   });
 
-  bot.sendMessage(msg.chat.id, `Created lead: ${lead.id}`);
+  bot.sendMessage(msg.chat.id, `Created ${lead.id}`);
 });
 
 /* ===============================
-   BUY FLOW (CORE MONEY ENGINE)
+   BUY FLOW
 =============================== */
 bot.onText(/\/buy (.+)/, async (msg, match) => {
   const user = getUser(msg.from);
@@ -250,52 +255,21 @@ bot.onText(/\/buy (.+)/, async (msg, match) => {
     return bot.sendMessage(msg.chat.id, "Lead not found");
   }
 
-  if (lead.status !== "available") {
-    return bot.sendMessage(msg.chat.id, "Lead already sold or locked");
-  }
-
   const locked = lockLead(leadId, user.id);
 
   if (!locked) {
-    return bot.sendMessage(msg.chat.id, "Could not lock lead");
+    return bot.sendMessage(msg.chat.id, "Already taken");
   }
 
-  try {
-    const session = await createCheckout(lead, user.id);
+  const session = await createCheckout(lead, user.id);
 
-    bot.sendMessage(
-      msg.chat.id,
-      `💳 Complete payment:\n${session.url}`
-    );
-  } catch (err) {
-    console.error(err);
-    bot.sendMessage(msg.chat.id, "Payment error");
-  }
+  bot.sendMessage(msg.chat.id, `Pay here:\n${session.url}`);
 });
 
 /* ===============================
-   STATS (BASIC SAAS METRICS)
+   STRIPE WEBHOOK + TWILIO DELIVERY
 =============================== */
-bot.onText(/\/stats/, (msg) => {
-  const total = store.leads.size;
-  const sold = [...store.leads.values()].filter(l => l.status === "sold").length;
-
-  bot.sendMessage(
-    msg.chat.id,
-`
-📊 MARKETPLACE STATS
-
-Total Leads: ${total}
-Sold: ${sold}
-Revenue Ready: ${sold * 29}
-`
-  );
-});
-
-/* ===============================
-   STRIPE WEBHOOK (REVENUE ENGINE)
-=============================== */
-app.post("/stripe-webhook", express.raw({ type: "application/json" }), (req, res) => {
+app.post("/stripe-webhook", express.raw({ type: "application/json" }), async (req, res) => {
   let event;
 
   try {
@@ -304,7 +278,7 @@ app.post("/stripe-webhook", express.raw({ type: "application/json" }), (req, res
       req.headers["stripe-signature"],
       STRIPE_WEBHOOK_SECRET
     );
-  } catch (err) {
+  } catch {
     return res.sendStatus(400);
   }
 
@@ -317,27 +291,24 @@ app.post("/stripe-webhook", express.raw({ type: "application/json" }), (req, res
     if (lead) {
       lead.status = "sold";
 
-      store.purchases.set(leadId, {
-        leadId,
-        userId,
-        time: Date.now(),
-      });
-
       const user = store.users.get(Number(userId));
       if (user) user.purchases += 1;
 
-      bot.sendMessage(
-        Number(userId),
-        `
+      const message = `
 🔥 LEAD DELIVERED
 
 📍 ${lead.city}
 🏷 ${lead.category}
 ⭐ ${lead.score}
+      `.trim();
 
-Thank you for your purchase.
-        `.trim()
-      );
+      // Telegram delivery
+      bot.sendMessage(Number(userId), message);
+
+      // NEW: Twilio SMS delivery
+      if (user?.phone) {
+        await sendSMS(user.phone, message);
+      }
     }
   }
 
@@ -345,22 +316,19 @@ Thank you for your purchase.
 });
 
 /* ===============================
-   HEALTH CHECK
+   HEALTH
 =============================== */
 app.get("/health", (req, res) => {
   res.json({
     leads: store.leads.size,
     users: store.users.size,
     sold: [...store.leads.values()].filter(l => l.status === "sold").length,
-    revenue_estimate: [...store.leads.values()]
-      .filter(l => l.status === "sold")
-      .reduce((a, b) => a + b.price, 0),
   });
 });
 
 /* ===============================
-   START SERVER
+   START
 =============================== */
 app.listen(PORT, () => {
-  console.log(`🚀 SaaS Lead Bot running on ${PORT}`);
+  console.log(`🚀 Lead SaaS + Twilio running on ${PORT}`);
 });
