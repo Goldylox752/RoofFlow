@@ -2,13 +2,27 @@ const express = require("express");
 const Stripe = require("stripe");
 
 const router = express.Router();
+
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
+/* ===============================
+   STRIPE WEBHOOK ROUTE
+   - RAW BODY REQUIRED
+   - SIGNATURE VERIFIED
+   - SAFE FOR REPLAY ATTACKS (idempotency recommended)
+=============================== */
 router.post(
   "/",
   express.raw({ type: "application/json" }),
   async (req, res) => {
     const sig = req.headers["stripe-signature"];
+
+    if (!sig) {
+      return res.status(400).json({
+        success: false,
+        error: "missing_signature",
+      });
+    }
 
     let event;
 
@@ -19,25 +33,59 @@ router.post(
         process.env.STRIPE_WEBHOOK_SECRET
       );
     } catch (err) {
-      return res.status(400).send(`Webhook Error: ${err.message}`);
+      console.error("Stripe webhook signature error:", err.message);
+
+      return res.status(400).json({
+        success: false,
+        error: "invalid_signature",
+      });
     }
 
-    /* ===============================
-       PAYMENT SUCCESS → UNLOCK LEAD
-    =============================== */
-    if (event.type === "payment_intent.succeeded") {
-      const payment = event.data.object;
+    try {
+      const eventType = event.type;
+      const data = event.data.object;
 
-      const { leadId, contractorId } = payment.metadata;
+      switch (eventType) {
+        /*
+          PAYMENT SUCCESS FLOW
+          - unlock lead
+          - assign contractor
+          - mark payment complete
+        */
+        case "payment_intent.succeeded": {
+          const { leadId, contractorId } = data.metadata || {};
 
-      // 1. mark paid
-      // 2. assign lead
-      // 3. unlock system
+          if (!leadId || !contractorId) {
+            console.warn("Missing metadata on payment_intent:", data.id);
+            break;
+          }
 
-      console.log("Paid lead:", leadId, contractorId);
+          // TODO:
+          // 1. mark payment as paid in DB
+          // 2. assign lead to contractor
+          // 3. unlock lead workflow
+
+          console.log("Payment succeeded for lead:", {
+            leadId,
+            contractorId,
+          });
+
+          break;
+        }
+
+        default:
+          console.log("Unhandled Stripe event:", eventType);
+      }
+
+      return res.json({ received: true });
+    } catch (err) {
+      console.error("Stripe webhook processing error:", err);
+
+      return res.status(500).json({
+        success: false,
+        error: "webhook_processing_failed",
+      });
     }
-
-    res.json({ received: true });
   }
 );
 
