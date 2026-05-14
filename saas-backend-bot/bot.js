@@ -33,7 +33,7 @@ const {
 } = process.env;
 
 /* ===============================
-   INIT SERVICES
+   INIT
 =============================== */
 const app = express();
 
@@ -44,20 +44,22 @@ const stripe = new Stripe(STRIPE_SECRET_KEY, {
 
 const bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: true });
 
-const twilioClient = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
+const twilioClient = twilio(
+  TWILIO_ACCOUNT_SID,
+  TWILIO_AUTH_TOKEN
+);
 
 /* ===============================
-   MEMORY STORE (MVP DB)
+   MEMORY STORE
 =============================== */
 const store = {
   users: new Map(),
   leads: new Map(),
   locks: new Map(),
-  purchases: new Map(),
 };
 
 /* ===============================
-   USER SYSTEM
+   USER
 =============================== */
 function getUser(tgUser) {
   const id = tgUser.id;
@@ -67,8 +69,8 @@ function getUser(tgUser) {
       id,
       username: tgUser.username || "unknown",
       phone: null,
-      createdAt: Date.now(),
       purchases: 0,
+      createdAt: Date.now(),
     });
   }
 
@@ -76,16 +78,19 @@ function getUser(tgUser) {
 }
 
 /* ===============================
-   SAFE SEND HELPERS
+   TELEGRAM SAFE SEND
 =============================== */
 function sendTG(chatId, text) {
   try {
     return bot.sendMessage(chatId, text);
-  } catch (err) {
-    console.error("Telegram error:", err.message);
+  } catch (e) {
+    console.error("TG error:", e.message);
   }
 }
 
+/* ===============================
+   SMS DELIVERY
+=============================== */
 async function sendSMS(phone, message) {
   if (!phone) return;
 
@@ -95,13 +100,37 @@ async function sendSMS(phone, message) {
       from: TWILIO_PHONE_NUMBER,
       to: phone,
     });
-  } catch (err) {
-    console.error("Twilio error:", err.message);
+  } catch (e) {
+    console.error("SMS error:", e.message);
   }
 }
 
 /* ===============================
-   LEAD ENGINE
+   📞 VOICE CALL ENGINE (NEW)
+=============================== */
+async function sendVoiceCall(phone) {
+  if (!phone) return;
+
+  try {
+    await twilioClient.calls.create({
+      to: phone,
+      from: TWILIO_PHONE_NUMBER,
+      twiml: `
+        <Response>
+          <Say voice="alice">
+            Hello. You just received a new lead from your marketplace system.
+            Please check your Telegram or dashboard for details.
+          </Say>
+        </Response>
+      `,
+    });
+  } catch (e) {
+    console.error("Voice call error:", e.message);
+  }
+}
+
+/* ===============================
+   LEADS
 =============================== */
 function createLead(data) {
   const id = `lead_${Date.now()}`;
@@ -123,7 +152,7 @@ function createLead(data) {
 }
 
 /* ===============================
-   LOCK SYSTEM (ANTI DOUBLE BUY)
+   LOCK SYSTEM
 =============================== */
 function lockLead(leadId, userId) {
   const lead = store.leads.get(leadId);
@@ -132,7 +161,6 @@ function lockLead(leadId, userId) {
   lead.status = "locked";
   lead.lockedBy = userId;
   lead.lockedAt = Date.now();
-  lead.lockExpires = Date.now() + 10 * 60 * 1000;
 
   store.locks.set(leadId, userId);
 
@@ -140,18 +168,17 @@ function lockLead(leadId, userId) {
 }
 
 /* ===============================
-   SALES BROADCAST ENGINE
+   BROADCAST SALES
 =============================== */
 function broadcastLead(lead) {
   const msg = `
-🔥 NEW HIGH-CONVERTING LEAD
+🔥 NEW LEAD
 
-📍 City: ${lead.city}
-🏷 Category: ${lead.category}
-⭐ Score: ${lead.score}/100
-💰 Price: $${lead.price}
+📍 ${lead.city}
+🏷 ${lead.category}
+⭐ ${lead.score}
+💰 $${lead.price}
 
-👉 Buy instantly:
 /buy ${lead.id}
   `.trim();
 
@@ -172,8 +199,8 @@ async function createCheckout(lead, userId) {
         price_data: {
           currency: "usd",
           product_data: {
-            name: `Lead - ${lead.city}`,
-            description: `${lead.category} lead`,
+            name: `Lead ${lead.city}`,
+            description: lead.category,
           },
           unit_amount: lead.price * 100,
         },
@@ -193,16 +220,13 @@ async function createCheckout(lead, userId) {
    TELEGRAM COMMANDS
 =============================== */
 bot.setMyCommands([
-  { command: "start", description: "Start bot" },
+  { command: "start", description: "Start" },
   { command: "leads", description: "View leads" },
-  { command: "add", description: "Generate test lead" },
+  { command: "add", description: "Test lead" },
   { command: "buy", description: "Buy lead" },
-  { command: "stats", description: "Marketplace stats" },
+  { command: "stats", description: "Stats" },
 ]);
 
-/* ===============================
-   START
-=============================== */
 bot.onText(/\/start/, (msg) => {
   const user = getUser(msg.from);
 
@@ -210,40 +234,33 @@ bot.onText(/\/start/, (msg) => {
     msg.chat.id,
 `Welcome ${user.username}
 
-🚀 Lead Marketplace Active
-Use /leads to browse leads`
+🚀 Lead Marketplace Active`
   );
 });
 
 /* ===============================
-   LIST LEADS
+   LEADS
 =============================== */
 bot.onText(/\/leads/, (msg) => {
   const leads = [...store.leads.values()]
     .filter(l => l.status === "available")
     .slice(-10);
 
-  if (!leads.length) {
-    return sendTG(msg.chat.id, "No leads available right now.");
-  }
+  if (!leads.length) return sendTG(msg.chat.id, "No leads");
 
-  const text = leads
-    .map(
-      (l) => `
-ID: ${l.id}
+  sendTG(
+    msg.chat.id,
+    leads.map(l =>
+`ID: ${l.id}
 📍 ${l.city}
 🏷 ${l.category}
-⭐ ${l.score}
-💰 $${l.price}
-`
-    )
-    .join("\n----------------\n");
-
-  sendTG(msg.chat.id, text);
+💰 $${l.price}`
+    ).join("\n\n---\n")
+  );
 });
 
 /* ===============================
-   ADD TEST LEAD
+   ADD LEAD
 =============================== */
 bot.onText(/\/add/, (msg) => {
   const lead = createLead({
@@ -253,36 +270,79 @@ bot.onText(/\/add/, (msg) => {
     score: 85,
   });
 
-  sendTG(msg.chat.id, `Created lead:\n${lead.id}`);
+  sendTG(msg.chat.id, `Created ${lead.id}`);
 });
 
 /* ===============================
-   BUY FLOW (CORE REVENUE ENGINE)
+   BUY FLOW
 =============================== */
 bot.onText(/\/buy (.+)/, async (msg, match) => {
   const user = getUser(msg.from);
   const leadId = match[1];
 
   const lead = store.leads.get(leadId);
-
-  if (!lead) return sendTG(msg.chat.id, "Lead not found");
+  if (!lead) return sendTG(msg.chat.id, "Not found");
 
   const locked = lockLead(leadId, user.id);
+  if (!locked) return sendTG(msg.chat.id, "Taken");
 
-  if (!locked) return sendTG(msg.chat.id, "Lead already taken");
+  const session = await createCheckout(lead, user.id);
 
-  try {
-    const session = await createCheckout(lead, user.id);
-
-    sendTG(msg.chat.id, `💳 Pay here:\n${session.url}`);
-  } catch (err) {
-    console.error(err);
-    sendTG(msg.chat.id, "Payment error occurred");
-  }
+  sendTG(msg.chat.id, `Pay:\n${session.url}`);
 });
 
 /* ===============================
-   STATS (SAAS METRICS)
+   STRIPE WEBHOOK + VOICE + SMS
+=============================== */
+app.post("/stripe-webhook", express.raw({ type: "application/json" }), async (req, res) => {
+  let event;
+
+  try {
+    event = stripe.webhooks.constructEvent(
+      req.body,
+      req.headers["stripe-signature"],
+      STRIPE_WEBHOOK_SECRET
+    );
+  } catch {
+    return res.sendStatus(400);
+  }
+
+  if (event.type === "checkout.session.completed") {
+    const session = event.data.object;
+    const { leadId, userId } = session.metadata;
+
+    const lead = store.leads.get(leadId);
+    const user = store.users.get(Number(userId));
+
+    if (lead) {
+      lead.status = "sold";
+
+      const msg = `
+🔥 LEAD DELIVERED
+
+📍 ${lead.city}
+🏷 ${lead.category}
+⭐ ${lead.score}
+      `.trim();
+
+      // Telegram
+      sendTG(Number(userId), msg);
+
+      // SMS
+      if (user?.phone) {
+        await sendSMS(user.phone, msg);
+
+        // 📞 VOICE CALL (NEW POWER FEATURE)
+        await sendVoiceCall(user.phone);
+      }
+    }
+  }
+
+  res.sendStatus(200);
+});
+
+/* ===============================
+   STATS
 =============================== */
 bot.onText(/\/stats/, (msg) => {
   const total = store.leads.size;
@@ -290,82 +350,26 @@ bot.onText(/\/stats/, (msg) => {
 
   sendTG(
     msg.chat.id,
-`📊 MARKETPLACE STATS
-
-Total Leads: ${total}
+`Stats:
+Total: ${total}
 Sold: ${sold}
-Revenue Estimate: $${sold * 29}`
+Revenue: $${sold * 29}`
   );
 });
 
 /* ===============================
-   STRIPE WEBHOOK (MONEY CONFIRMATION)
-=============================== */
-app.post(
-  "/stripe-webhook",
-  express.raw({ type: "application/json" }),
-  async (req, res) => {
-    let event;
-
-    try {
-      event = stripe.webhooks.constructEvent(
-        req.body,
-        req.headers["stripe-signature"],
-        STRIPE_WEBHOOK_SECRET
-      );
-    } catch {
-      return res.sendStatus(400);
-    }
-
-    if (event.type === "checkout.session.completed") {
-      const session = event.data.object;
-      const { leadId, userId } = session.metadata;
-
-      const lead = store.leads.get(leadId);
-
-      if (lead) {
-        lead.status = "sold";
-
-        const user = store.users.get(Number(userId));
-        if (user) user.purchases += 1;
-
-        const message = `
-🔥 LEAD DELIVERED
-
-📍 ${lead.city}
-🏷 ${lead.category}
-⭐ ${lead.score}
-        `.trim();
-
-        // Telegram delivery
-        sendTG(Number(userId), message);
-
-        // Twilio SMS delivery (NEW SALES CHANNEL)
-        if (user?.phone) {
-          await sendSMS(user.phone, message);
-        }
-      }
-    }
-
-    res.sendStatus(200);
-  }
-);
-
-/* ===============================
-   HEALTH CHECK
+   HEALTH
 =============================== */
 app.get("/health", (req, res) => {
   res.json({
-    status: "ok",
     leads: store.leads.size,
     users: store.users.size,
-    sold: [...store.leads.values()].filter(l => l.status === "sold").length,
   });
 });
 
 /* ===============================
-   START SERVER
+   START
 =============================== */
 app.listen(PORT, () => {
-  console.log(`🚀 Lead SaaS + Twilio + Stripe running on ${PORT}`);
+  console.log(`🚀 Lead SaaS + Voice Calls running on ${PORT}`);
 });
