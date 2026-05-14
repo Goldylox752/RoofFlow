@@ -1,36 +1,64 @@
 const express = require("express");
 const router = express.Router();
 
-const { verifyRefreshToken, signAccessToken, signRefreshToken } = require("../../lib/jwt");
+const {
+  verifyRefreshToken,
+  signAccessToken,
+  signRefreshToken,
+} = require("../../lib/jwt");
+
 const { deleteSession, createSession } = require("../../lib/sessionStore");
 
-router.post("/", (req, res) => {
+router.post("/", async (req, res) => {
   try {
-    const { refreshToken } = req.body;
+    const refreshToken = req.body?.refreshToken;
+
+    if (!refreshToken) {
+      return res.status(400).json({
+        success: false,
+        error: "missing_refresh_token",
+      });
+    }
 
     const decoded = verifyRefreshToken(refreshToken);
 
-    // 🔥 revoke old session
-    deleteSession(decoded.jti);
+    if (!decoded?.jti || !decoded?.id) {
+      return res.status(401).json({
+        success: false,
+        error: "invalid_refresh_token",
+      });
+    }
 
-    // 🔥 create new session
-    const newAccess = signAccessToken(decoded);
-    const newRefresh = signRefreshToken(decoded);
+    // revoke old session
+    await deleteSession(decoded.jti);
 
-    createSession(decoded.jti, {
+    const newPayload = {
+      id: decoded.id,
+      email: decoded.email,
+      role: decoded.role,
+      plan: decoded.plan,
+    };
+
+    // create new session id (important rotation safety)
+    const newJti = crypto.randomUUID?.() || String(Date.now());
+
+    const accessToken = signAccessToken({ ...newPayload, jti: newJti });
+    const newRefreshToken = signRefreshToken({ ...newPayload, jti: newJti });
+
+    await createSession(newJti, {
       userId: decoded.id,
       email: decoded.email,
     });
 
     return res.json({
       success: true,
-      accessToken: newAccess,
-      refreshToken: newRefresh,
+      accessToken,
+      refreshToken: newRefreshToken,
     });
   } catch (err) {
     return res.status(401).json({
       success: false,
-      error: "Invalid refresh token",
+      error: "invalid_refresh_token",
     });
   }
 });
