@@ -1,95 +1,132 @@
 require("dotenv").config();
+
 const TelegramBot = require("node-telegram-bot-api");
 
+/* ===============================
+   BOT INIT
+=============================== */
 const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, {
   polling: false,
 });
 
-const ADMIN_IDS = (process.env.ADMIN_IDS || "").split(",");
+/* ===============================
+   ADMIN CONFIG
+=============================== */
+const ADMIN_IDS = (process.env.ADMIN_IDS || "")
+  .split(",")
+  .map((id) => id.trim())
+  .filter(Boolean);
 
-function isAdmin(id) {
-  return ADMIN_IDS.includes(String(id));
+function isAdmin(userId) {
+  return ADMIN_IDS.includes(String(userId));
 }
 
 /* ===============================
-   COMMAND ROUTER
+   SAFE STORAGE LAYER (replace globals later with DB)
 =============================== */
+const store = {
+  users: [],
+  leads: [],
+  revenue: 0,
+};
 
+/* ===============================
+   COMMAND ROUTER HELPERS
+=============================== */
+function deny(msg) {
+  return bot.sendMessage(msg.chat.id, "Access denied");
+}
+
+function send(msg, text) {
+  return bot.sendMessage(msg.chat.id, text);
+}
+
+/* ===============================
+   START
+=============================== */
 bot.onText(/\/start/, async (msg) => {
-  bot.sendMessage(
-    msg.chat.id,
-    `SaaS Control Panel Online
-
-Commands:
-/users
-/leads
-/revenue
-/plan`
+  send(
+    msg,
+    [
+      "SaaS Control Panel Online",
+      "",
+      "Commands:",
+      "/users",
+      "/leads",
+      "/revenue",
+      "/upgrade <userId>",
+    ].join("\n")
   );
 });
 
 /* ===============================
-   USERS DASHBOARD
+   USERS
 =============================== */
 bot.onText(/\/users/, async (msg) => {
-  if (!isAdmin(msg.from.id)) return;
+  if (!isAdmin(msg.from.id)) return deny(msg);
 
-  const users = global.users || [];
+  const count = store.users.length;
 
-  bot.sendMessage(
-    msg.chat.id,
-    `Total Users: ${users.length}`
-  );
+  send(msg, `Total Users: ${count}`);
 });
 
 /* ===============================
-   LEADS DASHBOARD
+   LEADS
 =============================== */
 bot.onText(/\/leads/, async (msg) => {
-  if (!isAdmin(msg.from.id)) return;
+  if (!isAdmin(msg.from.id)) return deny(msg);
 
-  const leads = global.leads || [];
+  const lastLeads = store.leads.slice(-5);
 
-  const last5 = leads.slice(-5);
+  if (!lastLeads.length) {
+    return send(msg, "No leads found");
+  }
 
-  const text = last5
-    .map(
-      (l) =>
-        `Lead: ${l.email || l.phone}
-Score: ${l.score}
-City: ${l.city}`
-    )
-    .join("\n\n");
+  const formatted = lastLeads
+    .map((l, i) => {
+      return [
+        `Lead #${i + 1}`,
+        `Email: ${l.email || "N/A"}`,
+        `Phone: ${l.phone || "N/A"}`,
+        `Score: ${l.score || 0}`,
+        `City: ${l.city || "N/A"}`,
+      ].join("\n");
+    })
+    .join("\n\n----------------\n\n");
 
-  bot.sendMessage(msg.chat.id, text || "No leads yet");
+  send(msg, formatted);
 });
 
 /* ===============================
-   REVENUE (STRIPE HOOK)
+   REVENUE
 =============================== */
 bot.onText(/\/revenue/, async (msg) => {
-  if (!isAdmin(msg.from.id)) return;
+  if (!isAdmin(msg.from.id)) return deny(msg);
 
-  const revenue = global.revenue || 0;
-
-  bot.sendMessage(
-    msg.chat.id,
-    `Total Revenue: $${revenue}`
-  );
+  send(msg, `Total Revenue: $${store.revenue}`);
 });
 
 /* ===============================
-   MANUAL UPGRADE USER
+   MANUAL UPGRADE
 =============================== */
 bot.onText(/\/upgrade (\d+)/, async (msg, match) => {
-  if (!isAdmin(msg.from.id)) return;
+  if (!isAdmin(msg.from.id)) return deny(msg);
 
-  const userId = match[1];
+  const userId = match?.[1];
 
-  bot.sendMessage(
-    msg.chat.id,
-    `User ${userId} upgraded to PRO`
-  );
+  if (!userId) {
+    return send(msg, "Usage: /upgrade <userId>");
+  }
+
+  // placeholder for DB update
+  send(msg, `User ${userId} upgraded to PRO`);
+});
+
+/* ===============================
+   ERROR HANDLING
+=============================== */
+bot.on("polling_error", (err) => {
+  console.error("Telegram polling error:", err.message);
 });
 
 module.exports = bot;
