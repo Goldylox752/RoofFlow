@@ -4,21 +4,49 @@ const router = express.Router();
 const { handleTelegramCommand } = require("../lib/telegramCommands");
 const sendTelegram = require("../lib/sendTelegram");
 
+/* ===============================
+   TELEGRAM WEBHOOK ROUTE
+   - SAFE FOR WEBHOOK RETRIES
+   - NEVER FAILS WITH NON-200 (Telegram requirement)
+=============================== */
 router.post("/", async (req, res) => {
   try {
-    const message = req.body?.message?.text;
-    const chatId = req.body?.message?.chat?.id;
+    const update = req.body;
 
-    if (!message) return res.sendStatus(200);
+    const message = update?.message?.text;
+    const chatId = update?.message?.chat?.id;
 
-    const response = await handleTelegramCommand(message);
+    /*
+      Telegram may send many update types:
+      - message
+      - edited_message
+      - callback_query
+      - channel_post
+    */
 
-    await sendTelegram(response, chatId);
+    if (!message || !chatId) {
+      return res.sendStatus(200);
+    }
 
-    res.sendStatus(200);
+    const response = await handleTelegramCommand(message, {
+      chatId,
+      update,
+    });
+
+    if (response) {
+      await sendTelegram(response, chatId);
+    }
+
+    return res.sendStatus(200);
+
   } catch (err) {
     console.error("Telegram webhook error:", err);
-    res.sendStatus(200);
+
+    /*
+      Always return 200 to prevent Telegram retry loops
+      Log internally instead
+    */
+    return res.sendStatus(200);
   }
 });
 
