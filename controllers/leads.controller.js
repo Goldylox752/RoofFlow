@@ -1,59 +1,107 @@
 const supabase = require("../lib/supabase");
 
 /* ===============================
-   SAFE RESPONSE HELPERS
+   SAFE RESPONSES
 =============================== */
-const success = (res, data) => {
-  return res.status(200).json({
-    success: true,
-    data,
-  });
-};
+const success = (res, data) =>
+  res.status(200).json({ success: true, data });
 
-const fail = (res, message, code = 500) => {
-  return res.status(code).json({
-    success: false,
-    error: message,
-  });
-};
+const fail = (res, message, code = 500) =>
+  res.status(code).json({ success: false, error: message });
 
 /* ===============================
-   CREATE LEAD
+   SIMPLE LEAD SCORING ENGINE
+=============================== */
+function calculateScore({ email, phone, city }) {
+  let score = 40;
+
+  if (email?.includes("@gmail")) score += 5;
+  if (phone) score += 20;
+  if (city) score += 10;
+
+  return Math.min(score, 100);
+}
+
+/* ===============================
+   CREATE LEAD (UPGRADED SAAS VERSION)
 =============================== */
 exports.createLead = async (req, res) => {
   try {
-    const { name, email, phone, city } = req.body;
+    const {
+      name,
+      email,
+      phone,
+      city,
+      category = "general",
+      source = "api",
+      tenant_id = null,
+    } = req.body;
 
     /* ===============================
-       VALIDATION (CRITICAL)
+       VALIDATION
     =============================== */
-    if (!email || !phone) {
-      return fail(res, "Email and phone are required", 400);
+    if (!email && !phone) {
+      return fail(res, "Email or phone required", 400);
+    }
+
+    if (!category) {
+      return fail(res, "Category required", 400);
     }
 
     /* ===============================
-       NORMALIZE DATA
+       NORMALIZE
     =============================== */
-    const lead = {
-      name: name?.trim() || "Unknown",
-      email: email.toLowerCase().trim(),
-      phone: phone.trim(),
-      city: city?.trim() || null,
-      created_at: new Date().toISOString(),
-    };
+    const normalizedEmail = email?.toLowerCase().trim() || null;
+    const normalizedPhone = phone?.trim() || null;
 
     /* ===============================
-       DUPLICATE CHECK (IMPORTANT FOR SAAS)
+       DEDUPE KEY (CRITICAL FOR MARKETPLACE)
+    =============================== */
+    const dedupeKey = `${normalizedEmail || ""}-${normalizedPhone || ""}`;
+
+    /* ===============================
+       CHECK DUPLICATES
     =============================== */
     const { data: existing } = await supabase
       .from("leads")
       .select("id")
-      .eq("email", lead.email)
+      .eq("dedupe_key", dedupeKey)
       .maybeSingle();
 
     if (existing) {
-      return fail(res, "Lead already exists", 409);
+      return fail(res, "Duplicate lead blocked", 409);
     }
+
+    /* ===============================
+       SCORE ENGINE
+    =============================== */
+    const score = calculateScore({
+      email: normalizedEmail,
+      phone: normalizedPhone,
+      city,
+    });
+
+    /* ===============================
+       FINAL LEAD OBJECT
+    =============================== */
+    const lead = {
+      name: name?.trim() || "Unknown",
+      email: normalizedEmail,
+      phone: normalizedPhone,
+      city: city?.trim() || null,
+
+      category,
+      source,
+      tenant_id,
+
+      score,
+      status: "new",
+
+      dedupe_key: dedupeKey,
+
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
 
     /* ===============================
        INSERT LEAD
@@ -67,6 +115,19 @@ exports.createLead = async (req, res) => {
     if (error) {
       return fail(res, error.message);
     }
+
+    /* ===============================
+       EVENT TRACKING (FOR SAAS ANALYTICS)
+    =============================== */
+    await supabase.from("lead_events").insert([
+      {
+        lead_id: data.id,
+        type: "created",
+        source,
+        meta: { category, score },
+        created_at: new Date().toISOString(),
+      },
+    ]);
 
     return success(res, data);
   } catch (err) {
