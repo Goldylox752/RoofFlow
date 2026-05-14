@@ -1,23 +1,37 @@
 import "./globals.css";
+import type { Metadata } from "next";
 
-export const metadata = {
-  title: "Flow OS — Build SaaS without backend complexity",
+export const metadata: Metadata = {
+  title: "NorthSky — AI Automation SaaS Platform",
   description:
-    "Flow OS is a modern AI-powered backend system for launching SaaS products, automations, and Stripe-ready apps in minutes.",
+    "Launch automation systems, Telegram bots, Stripe billing, analytics dashboards, and scalable SaaS infrastructure with NorthSky.",
   keywords: [
-    "saas backend",
-    "stripe integration",
-    "ai automation",
-    "no-code backend",
-    "startup tools",
+    "AI SaaS",
+    "Telegram automation",
+    "Stripe SaaS",
+    "automation backend",
+    "analytics dashboard",
+    "startup infrastructure",
+    "SaaS platform",
   ],
+
   openGraph: {
-    title: "Flow OS",
-    description: "Launch SaaS products without backend complexity",
-    url: "https://flowos.app",
-    siteName: "Flow OS",
+    title: "NorthSky",
+    description:
+      "Modern automation infrastructure for SaaS founders and AI businesses.",
+    url: "https://northsky.app",
+    siteName: "NorthSky",
     type: "website",
   },
+
+  twitter: {
+    card: "summary_large_image",
+    title: "NorthSky",
+    description:
+      "Operate AI automation systems with Stripe, Telegram, analytics, and scalable SaaS infrastructure.",
+  },
+
+  themeColor: "#070b12",
 };
 
 export default function RootLayout({
@@ -27,53 +41,82 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <head>
-        {/* Optional performance + trust signals */}
-        <meta name="theme-color" content="#0b0f17" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-      </head>
-
       <body style={styles.body}>
-        {/* GLOBAL BACKGROUND LAYER (adds premium SaaS feel) */}
-        <div style={styles.bgGlow} />
+        {/* BACKGROUND LAYERS */}
+        <div style={styles.primaryGlow} />
+        <div style={styles.secondaryGlow} />
+        <div style={styles.gridOverlay} />
 
-        {/* APP CONTENT */}
-        <div style={styles.container}>
-          {children}
-        </div>
+        {/* APP */}
+        <div style={styles.container}>{children}</div>
       </body>
     </html>
   );
 }
 
-/* ================= STYLES (UPGRADED SAAS LOOK) ================= */
+/* ===============================
+   STYLES
+=============================== */
 
-const styles = {
+const styles: Record<string, React.CSSProperties> = {
   body: {
     margin: 0,
     padding: 0,
-    background: "#070b12",
-    color: "#fff",
+    background:
+      "linear-gradient(to bottom, #050816 0%, #070b12 40%, #050816 100%)",
+    color: "#ffffff",
     fontFamily:
-      "Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif",
+      "Inter, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif",
     overflowX: "hidden",
+    minHeight: "100vh",
+    position: "relative",
   },
 
   container: {
     position: "relative",
-    zIndex: 2,
+    zIndex: 10,
   },
 
-  /* subtle glow background = premium SaaS feel */
-  bgGlow: {
+  /* TOP LEFT GLOW */
+  primaryGlow: {
     position: "fixed",
-    top: "-200px",
-    left: "-200px",
-    width: "600px",
-    height: "600px",
-    background: "radial-gradient(circle, rgba(79,124,255,0.25), transparent 60%)",
-    filter: "blur(80px)",
-    zIndex: 0,
+    top: "-250px",
+    left: "-250px",
+    width: "700px",
+    height: "700px",
+    borderRadius: "50%",
+    background:
+      "radial-gradient(circle, rgba(99,102,241,0.22), transparent 65%)",
+    filter: "blur(100px)",
     pointerEvents: "none",
+    zIndex: 0,
+  },
+
+  /* BOTTOM RIGHT GLOW */
+  secondaryGlow: {
+    position: "fixed",
+    bottom: "-300px",
+    right: "-300px",
+    width: "800px",
+    height: "800px",
+    borderRadius: "50%",
+    background:
+      "radial-gradient(circle, rgba(168,85,247,0.18), transparent 65%)",
+    filter: "blur(120px)",
+    pointerEvents: "none",
+    zIndex: 0,
+  },
+
+  /* SUBTLE GRID EFFECT */
+  gridOverlay: {
+    position: "fixed",
+    inset: 0,
+    backgroundImage:
+      "linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px)",
+    backgroundSize: "40px 40px",
+    maskImage:
+      "radial-gradient(circle at center, black 35%, transparent 90%)",
+    pointerEvents: "none",
+    zIndex: 1,
   },
 };
