@@ -5,18 +5,16 @@ const TelegramBot = require("node-telegram-bot-api");
 const Stripe = require("stripe");
 
 /* ===============================
-   ENV VALIDATION
+   ENV SAFETY
 =============================== */
-const REQUIRED_ENV = [
+const REQUIRED = [
   "TELEGRAM_BOT_TOKEN",
   "STRIPE_SECRET_KEY",
   "CLIENT_URL",
 ];
 
-for (const key of REQUIRED_ENV) {
-  if (!process.env[key]) {
-    throw new Error(`Missing env: ${key}`);
-  }
+for (const key of REQUIRED) {
+  if (!process.env[key]) throw new Error(`Missing env: ${key}`);
 }
 
 const {
@@ -35,29 +33,22 @@ const app = express();
 const stripe = new Stripe(STRIPE_SECRET_KEY, {
   apiVersion: "2025-04-30.basil",
   maxNetworkRetries: 3,
-  timeout: 30000,
 });
 
-const bot = new TelegramBot(TELEGRAM_BOT_TOKEN);
+const bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: true });
 
 /* ===============================
-   MIDDLEWARE
-=============================== */
-app.use("/stripe-webhook", express.raw({ type: "application/json" }));
-app.use(express.json({ limit: "1mb" }));
-
-/* ===============================
-   LEAD MARKET DATABASE (MVP MEMORY)
+   MEMORY STORE (MVP DB)
 =============================== */
 const store = {
   users: new Map(),
   leads: new Map(),
+  locks: new Map(),
   purchases: new Map(),
-  state: new Map(),
 };
 
 /* ===============================
-   USER
+   USER SERVICE
 =============================== */
 function getUser(tgUser) {
   const id = tgUser.id;
@@ -74,7 +65,26 @@ function getUser(tgUser) {
 }
 
 /* ===============================
-   LEADS CORE
+   LEAD LOCK SYSTEM (CRITICAL UPGRADE)
+=============================== */
+function lockLead(leadId, userId) {
+  const lead = store.leads.get(leadId);
+  if (!lead) return null;
+
+  if (lead.status !== "available") return null;
+
+  lead.status = "locked";
+  lead.lockedBy = userId;
+  lead.lockedAt = Date.now();
+  lead.lockExpires = Date.now() + 10 * 60 * 1000;
+
+  store.locks.set(leadId, userId);
+
+  return lead;
+}
+
+/* ===============================
+   LEAD CREATION
 =============================== */
 function createLead(data) {
   const id = `lead_${Date.now()}`;
@@ -92,84 +102,84 @@ function createLead(data) {
   };
 
   store.leads.set(id, lead);
-
   broadcastLead(lead);
 
   return lead;
 }
 
+/* ===============================
+   BROADCAST SYSTEM
+=============================== */
 function broadcastLead(lead) {
-  const text =
-`NEW LEAD AVAILABLE
+  const msg =
+`🔥 NEW LEAD
 
-Category: ${lead.category}
-City: ${lead.city}
-Score: ${lead.score}
-Price: $${lead.price}
+📍 City: ${lead.city}
+🏷 Category: ${lead.category}
+⭐ Score: ${lead.score}
+💰 Price: $${lead.price}
 
 BUY:
 ${CLIENT_URL}/buy/${lead.id}`;
 
-  // broadcast to all users (MVP)
   for (const user of store.users.values()) {
-    bot.sendMessage(user.id, text);
+    bot.sendMessage(user.id, msg);
   }
 }
 
 /* ===============================
-   BUY FLOW
+   STRIPE CHECKOUT
 =============================== */
-async function createCheckout(leadId, userId) {
-  const lead = store.leads.get(leadId);
-
-  if (!lead || lead.status !== "available") {
-    throw new Error("Lead not available");
-  }
-
-  const session = await stripe.checkout.sessions.create({
+async function createCheckout(lead, userId) {
+  return stripe.checkout.sessions.create({
     mode: "payment",
     payment_method_types: ["card"],
+
     line_items: [
       {
         price_data: {
           currency: "usd",
           product_data: {
-            name: `Lead: ${lead.category}`,
+            name: `Lead - ${lead.city}`,
+            description: lead.category,
           },
           unit_amount: lead.price * 100,
         },
         quantity: 1,
       },
     ],
+
     metadata: {
-      leadId,
+      leadId: lead.id,
       userId: String(userId),
     },
+
     success_url: `${CLIENT_URL}/success`,
     cancel_url: `${CLIENT_URL}/cancel`,
   });
-
-  return session;
 }
 
 /* ===============================
    TELEGRAM COMMANDS
 =============================== */
 bot.setMyCommands([
-  { command: "start", description: "Start" },
+  { command: "start", description: "Start bot" },
   { command: "leads", description: "View leads" },
-  { command: "addlead", description: "Add test lead" },
+  { command: "add", description: "Add test lead" },
 ]);
 
+/* ===============================
+   START
+=============================== */
 bot.onText(/\/start/, (msg) => {
   const user = getUser(msg.from);
 
   bot.sendMessage(
     msg.chat.id,
-    `Welcome ${user.username}
+`Welcome ${user.username}
 
-This is a Lead Marketplace.
-You can buy verified leads instantly.`
+🔥 Lead Marketplace Active
+Buy verified leads instantly using /leads`
   );
 });
 
@@ -177,7 +187,7 @@ You can buy verified leads instantly.`
    LIST LEADS
 =============================== */
 bot.onText(/\/leads/, (msg) => {
-  const leads = Array.from(store.leads.values())
+  const leads = [...store.leads.values()]
     .filter(l => l.status === "available")
     .slice(-10);
 
@@ -187,20 +197,21 @@ bot.onText(/\/leads/, (msg) => {
 
   const text = leads.map(l =>
 `ID: ${l.id}
-City: ${l.city}
-Score: ${l.score}
-Price: $${l.price}
+📍 ${l.city}
+🏷 ${l.category}
+⭐ ${l.score}
+💰 $${l.price}
 `).join("\n----------------\n");
 
   bot.sendMessage(msg.chat.id, text);
 });
 
 /* ===============================
-   ADD TEST LEAD (MVP ONLY)
+   ADD TEST LEAD
 =============================== */
-bot.onText(/\/addlead/, (msg) => {
+bot.onText(/\/add/, (msg) => {
   const lead = createLead({
-    name: "Test Customer",
+    name: "Test Lead",
     phone: "hidden",
     city: "Calgary",
     category: "roofing",
@@ -208,13 +219,42 @@ bot.onText(/\/addlead/, (msg) => {
     score: 82,
   });
 
-  bot.sendMessage(msg.chat.id, `Lead created: ${lead.id}`);
+  bot.sendMessage(msg.chat.id, `Created: ${lead.id}`);
+});
+
+/* ===============================
+   BUY FLOW (CORE MONEY ENTRY)
+=============================== */
+bot.onText(/\/buy (.+)/, async (msg, match) => {
+  const user = getUser(msg.from);
+  const leadId = match[1];
+
+  const lead = store.leads.get(leadId);
+
+  if (!lead) {
+    return bot.sendMessage(msg.chat.id, "Lead not found");
+  }
+
+  const locked = lockLead(leadId, user.id);
+
+  if (!locked) {
+    return bot.sendMessage(msg.chat.id, "Lead already taken");
+  }
+
+  try {
+    const session = await createCheckout(lead, user.id);
+
+    bot.sendMessage(msg.chat.id, `💳 Pay here:\n${session.url}`);
+  } catch (err) {
+    console.error(err);
+    bot.sendMessage(msg.chat.id, "Payment error");
+  }
 });
 
 /* ===============================
    STRIPE WEBHOOK
 =============================== */
-app.post("/stripe-webhook", (req, res) => {
+app.post("/stripe-webhook", express.raw({ type: "application/json" }), (req, res) => {
   let event;
 
   try {
@@ -223,7 +263,7 @@ app.post("/stripe-webhook", (req, res) => {
       req.headers["stripe-signature"],
       STRIPE_WEBHOOK_SECRET
     );
-  } catch {
+  } catch (err) {
     return res.sendStatus(400);
   }
 
@@ -234,21 +274,22 @@ app.post("/stripe-webhook", (req, res) => {
 
     const lead = store.leads.get(leadId);
 
-    if (lead && lead.status === "available") {
+    if (lead) {
       lead.status = "sold";
 
       store.purchases.set(leadId, {
         leadId,
         userId,
-        purchasedAt: Date.now(),
+        time: Date.now(),
       });
 
       bot.sendMessage(
         Number(userId),
-        `Lead unlocked:
+        `🔥 LEAD DELIVERED
 
-${lead.city} - ${lead.category}
-Phone: hidden (unlock logic later)`
+📍 ${lead.city}
+🏷 ${lead.category}
+⭐ ${lead.score}`
       );
     }
   }
@@ -257,20 +298,19 @@ Phone: hidden (unlock logic later)`
 });
 
 /* ===============================
-   HEALTH CHECK
+   HEALTH
 =============================== */
 app.get("/health", (req, res) => {
   res.json({
-    status: "ok",
     leads: store.leads.size,
     users: store.users.size,
-    sold: Array.from(store.leads.values()).filter(l => l.status === "sold").length,
+    sold: [...store.leads.values()].filter(l => l.status === "sold").length,
   });
 });
 
 /* ===============================
-   START
+   START SERVER
 =============================== */
 app.listen(PORT, () => {
-  console.log(`Lead Marketplace running on port ${PORT}`);
+  console.log(`🚀 Lead Marketplace running on ${PORT}`);
 });
