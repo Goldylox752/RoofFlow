@@ -1,342 +1,172 @@
-import { auth } from "@clerk/nextjs/server";
-import { redirect } from "next/navigation";
+"use client";
 
-import { supabase } from "@/lib/supabase";
-import { forecastRevenue } from "@/server/ai/revenueForecast";
+import { useState } from "react";
 
-import { Card } from "@/components/ui/card";
+export default function HomePage() {
+  const [loading, setLoading] = useState<string | null>(null);
 
-type Lead = {
-  id: string;
-  value: number | null;
-  score: number | null;
-  status: string | null;
-};
+  async function go(plan: string) {
+    setLoading(plan);
 
-export default async function HomePage() {
-  const { orgId } = await auth();
+    const res = await fetch("/api/checkout", {
+      method: "POST",
+      body: JSON.stringify({ plan }),
+    });
 
-  if (!orgId) {
-    redirect("/");
+    const data = await res.json();
+
+    if (data?.url) {
+      window.location.href = data.url;
+    }
+
+    setLoading(null);
   }
 
-  /* ===============================
-     FETCH LEADS
-  =============================== */
-
-  const { data, error } = await supabase
-    .from("leads")
-    .select("*")
-    .eq("org_id", orgId);
-
-  if (error) {
-    console.error(error);
-  }
-
-  const leads: Lead[] = data ?? [];
-
-  /* ===============================
-     STATS
-  =============================== */
-
-  const stats = calculateStats(leads);
-
-  /* ===============================
-     AI FORECAST
-  =============================== */
-
-  const forecast = await getForecast(leads);
-
   return (
-    <div className="space-y-6">
-      <Header />
+    <main className="min-h-screen bg-black text-white px-6 py-20">
+      
+      {/* HERO */}
+      <section className="max-w-4xl mx-auto text-center">
+        
+        <h1 className="text-5xl font-semibold leading-tight">
+          Know which leads will close{" "}
+          <span className="text-indigo-400">
+            before you waste time on them
+          </span>
+        </h1>
 
-      <KpiGrid
-        stats={stats}
-        forecast={forecast}
-      />
+        <p className="mt-6 text-white/70 text-lg">
+          AI analyzes your leads, predicts revenue, and shows you exactly where to focus next.
+        </p>
 
-      <AiInsight forecast={forecast} />
+        <div className="mt-10 flex gap-4 justify-center">
+          <button
+            onClick={() => go("growth")}
+            className="px-6 py-3 bg-indigo-500 rounded-lg font-medium"
+          >
+            Start Free Trial
+          </button>
 
-      <SystemStatus stats={stats} />
+          <a
+            href="#pricing"
+            className="px-6 py-3 border border-white/20 rounded-lg"
+          >
+            View Pricing
+          </a>
+        </div>
 
-      <QuickActions />
-    </div>
-  );
-}
+        <p className="text-xs text-white/40 mt-4">
+          No credit card required to explore
+        </p>
+      </section>
 
-/* ===============================
-   TYPES
-=============================== */
+      {/* PROBLEM SECTION */}
+      <section className="max-w-4xl mx-auto mt-28">
+        <h2 className="text-2xl font-semibold text-center">
+          Most businesses waste time on the wrong leads
+        </h2>
 
-type Stats = {
-  total: number;
-  pipelineValue: number;
-  avgScore: number;
-  active: Lead[];
-  won: Lead[];
-  fresh: Lead[];
-};
+        <div className="grid md:grid-cols-3 gap-6 mt-10 text-white/70">
+          <div className="border border-white/10 p-4 rounded">
+            ❌ No idea which leads will close
+          </div>
 
-type Forecast = {
-  forecast_30_days: number;
-  confidence: number;
-  insights: string;
-};
+          <div className="border border-white/10 p-4 rounded">
+            ❌ Too much time wasted on low-quality prospects
+          </div>
 
-/* ===============================
-   DATA
-=============================== */
+          <div className="border border-white/10 p-4 rounded">
+            ❌ No clear revenue forecasting
+          </div>
+        </div>
+      </section>
 
-function calculateStats(leads: Lead[]): Stats {
-  const total = leads.length;
+      {/* VALUE SECTION */}
+      <section className="max-w-4xl mx-auto mt-28">
+        <h2 className="text-2xl font-semibold text-center">
+          AI tells you exactly what to do next
+        </h2>
 
-  const pipelineValue = leads.reduce(
-    (sum, lead) => sum + (lead.value ?? 0),
-    0
-  );
+        <div className="grid md:grid-cols-3 gap-6 mt-10">
+          <div className="border border-white/10 p-4 rounded">
+            📊 Lead scoring based on conversion likelihood
+          </div>
 
-  const avgScore =
-    total === 0
-      ? 0
-      : leads.reduce(
-          (sum, lead) => sum + (lead.score ?? 0),
-          0
-        ) / total;
+          <div className="border border-white/10 p-4 rounded">
+            💰 Revenue forecasting for next 30 days
+          </div>
 
-  const active = leads.filter(
-    (lead) =>
-      lead.status !== "won" &&
-      lead.status !== "lost"
-  );
+          <div className="border border-white/10 p-4 rounded">
+            ⚡ Priority dashboard (what to focus on NOW)
+          </div>
+        </div>
+      </section>
 
-  const won = leads.filter(
-    (lead) => lead.status === "won"
-  );
+      {/* PRICING */}
+      <section id="pricing" className="max-w-5xl mx-auto mt-28 text-center">
+        <h2 className="text-3xl font-semibold">
+          Simple pricing that grows with you
+        </h2>
 
-  const fresh = leads.filter(
-    (lead) => lead.status === "new"
-  );
+        <div className="grid md:grid-cols-3 gap-6 mt-10">
+          
+          <div className="border border-white/10 p-6 rounded">
+            <h3 className="text-xl font-semibold">Starter</h3>
+            <p className="text-white/60 mt-2">$29 / month</p>
 
-  return {
-    total,
-    pipelineValue,
-    avgScore,
-    active,
-    won,
-    fresh,
-  };
-}
+            <button
+              onClick={() => go("starter")}
+              className="mt-6 w-full py-2 border border-white/20 rounded"
+            >
+              {loading === "starter" ? "Loading..." : "Start"}
+            </button>
+          </div>
 
-/* ===============================
-   FORECAST
-=============================== */
+          <div className="border border-indigo-500 p-6 rounded bg-indigo-500/10">
+            <h3 className="text-xl font-semibold">Growth</h3>
+            <p className="text-white/60 mt-2">$79 / month</p>
 
-async function getForecast(
-  leads: Lead[]
-): Promise<Forecast> {
-  if (!leads.length) {
-    return {
-      forecast_30_days: 0,
-      confidence: 0,
-      insights: "Not enough data",
-    };
-  }
+            <button
+              onClick={() => go("growth")}
+              className="mt-6 w-full py-2 bg-indigo-500 rounded"
+            >
+              {loading === "growth" ? "Loading..." : "Most Popular"}
+            </button>
+          </div>
 
-  try {
-    return await forecastRevenue(leads);
+          <div className="border border-white/10 p-6 rounded">
+            <h3 className="text-xl font-semibold">Pro</h3>
+            <p className="text-white/60 mt-2">$149 / month</p>
 
-  } catch (error) {
-    console.error(error);
+            <button
+              onClick={() => go("pro")}
+              className="mt-6 w-full py-2 border border-white/20 rounded"
+            >
+              {loading === "pro" ? "Loading..." : "Upgrade"}
+            </button>
+          </div>
 
-    return {
-      forecast_30_days: 0,
-      confidence: 0,
-      insights: "Forecast unavailable",
-    };
-  }
-}
+        </div>
+      </section>
 
-/* ===============================
-   UI
-=============================== */
+      {/* CTA */}
+      <section className="text-center mt-28">
+        <h2 className="text-4xl font-semibold">
+          Stop guessing. Start closing better deals.
+        </h2>
 
-function Header() {
-  return (
-    <div>
-      <h1 className="text-3xl font-semibold">
-        AI Revenue System
-      </h1>
+        <button
+          onClick={() => go("growth")}
+          className="mt-8 px-8 py-4 bg-indigo-500 rounded-lg"
+        >
+          Get Started
+        </button>
+      </section>
 
-      <p className="text-sm text-white/60">
-        Autonomous sales intelligence overview
-      </p>
-    </div>
-  );
-}
-
-function KpiGrid({
-  stats,
-  forecast,
-}: {
-  stats: Stats;
-  forecast: Forecast;
-}) {
-  return (
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-      <Kpi
-        label="Total Leads"
-        value={stats.total}
-      />
-
-      <Kpi
-        label="Avg Score"
-        value={stats.avgScore.toFixed(1)}
-      />
-
-      <Kpi
-        label="Pipeline Value"
-        value={`$${stats.pipelineValue}`}
-      />
-
-      <Kpi
-        label="Forecast (30d)"
-        value={`$${forecast.forecast_30_days}`}
-      />
-    </div>
-  );
-}
-
-function AiInsight({
-  forecast,
-}: {
-  forecast: Forecast;
-}) {
-  return (
-    <Card className="p-4">
-      <h2 className="font-semibold">
-        AI Insight
-      </h2>
-
-      <p className="mt-2 text-sm text-white/70">
-        Confidence: {forecast.confidence}%
-      </p>
-
-      <p className="mt-2 text-sm text-white/70">
-        {forecast.insights}
-      </p>
-    </Card>
-  );
-}
-
-function SystemStatus({
-  stats,
-}: {
-  stats: Stats;
-}) {
-  return (
-    <Card className="p-4">
-      <h2 className="mb-3 font-semibold">
-        System Status
-      </h2>
-
-      <div className="grid grid-cols-3 gap-4 text-sm">
-        <Metric
-          label="Active Leads"
-          value={stats.active.length}
-        />
-
-        <Metric
-          label="Closed Deals"
-          value={stats.won.length}
-        />
-
-        <Metric
-          label="New Intake"
-          value={stats.fresh.length}
-        />
-      </div>
-    </Card>
-  );
-}
-
-function QuickActions() {
-  return (
-    <Card className="p-4">
-      <h2 className="mb-3 font-semibold">
-        Quick Actions
-      </h2>
-
-      <div className="flex flex-wrap gap-3">
-        <Action href="/leads">
-          View Leads
-        </Action>
-
-        <Action href="/pipeline">
-          Open Pipeline
-        </Action>
-
-        <Action href="/analytics">
-          Analytics
-        </Action>
-      </div>
-    </Card>
-  );
-}
-
-function Kpi({
-  label,
-  value,
-}: {
-  label: string;
-  value: string | number;
-}) {
-  return (
-    <div className="rounded-xl border border-white/10 p-4">
-      <div className="text-sm text-white/60">
-        {label}
-      </div>
-
-      <div className="mt-1 text-2xl font-semibold">
-        {value}
-      </div>
-    </div>
-  );
-}
-
-function Metric({
-  label,
-  value,
-}: {
-  label: string;
-  value: string | number;
-}) {
-  return (
-    <div>
-      <div className="text-xl font-semibold">
-        {value}
-      </div>
-
-      <div className="text-white/60">
-        {label}
-      </div>
-    </div>
-  );
-}
-
-function Action({
-  href,
-  children,
-}: {
-  href: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <a
-      href={href}
-      className="rounded border border-white/20 px-3 py-2 text-sm transition hover:bg-white hover:text-black"
-    >
-      {children}
-    </a>
+      {/* FOOTER */}
+      <footer className="text-center text-white/40 mt-28 text-sm">
+        © {new Date().getFullYear()} AI Revenue System
+      </footer>
+    </main>
   );
 }
