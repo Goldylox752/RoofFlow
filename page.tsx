@@ -3,12 +3,12 @@ import { db } from "@/lib/db";
 import { forecastRevenue } from "@/server/ai/revenueForecast";
 import { Card } from "@/components/ui/card";
 
-export default async function DashboardPage() {
+export default async function HomePage() {
   const { orgId } = auth();
 
   if (!orgId) {
     return (
-      <div className="p-6 text-white">
+      <div className="p-6">
         No organization selected
       </div>
     );
@@ -18,23 +18,23 @@ export default async function DashboardPage() {
     where: { orgId },
   });
 
-  const totalLeads = leads.length;
-
-  const avgScore =
-    totalLeads === 0
-      ? 0
-      : leads.reduce((a, b) => a + b.score, 0) / totalLeads;
+  const total = leads.length;
 
   const pipelineValue = leads.reduce(
     (sum, l) => sum + (l.value || 0),
     0
   );
 
+  const avgScore =
+    total === 0
+      ? 0
+      : leads.reduce((a, b) => a + b.score, 0) / total;
+
   const forecast = await forecastRevenue(leads);
 
-  const hotLeads = leads
-    .filter((l) => l.score >= 70)
-    .slice(0, 5);
+  const activeLeads = leads.filter(
+    (l) => l.status !== "won" && l.status !== "lost"
+  );
 
   return (
     <div className="space-y-6">
@@ -42,31 +42,34 @@ export default async function DashboardPage() {
       {/* HEADER */}
       <div>
         <h1 className="text-3xl font-semibold">
-          AI Revenue Command Center
+          AI Revenue System
         </h1>
 
         <p className="text-white/60 text-sm">
-          Autonomous revenue intelligence dashboard
+          Autonomous sales intelligence overview
         </p>
       </div>
 
       {/* KPI GRID */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
 
-        <Kpi label="Total Leads" value={totalLeads} />
-        <Kpi label="Avg Lead Score" value={avgScore.toFixed(1)} />
+        <Kpi label="Total Leads" value={total} />
+        <Kpi label="Avg Score" value={avgScore.toFixed(1)} />
         <Kpi label="Pipeline Value" value={`$${pipelineValue}`} />
-        <Kpi label="30-Day Forecast" value={`$${forecast.forecast_30_days}`} />
+        <Kpi
+          label="Forecast (30d)"
+          value={`$${forecast.forecast_30_days}`}
+        />
 
       </div>
 
       {/* AI INSIGHT PANEL */}
       <Card>
-        <h2 className="font-semibold mb-2">
-          AI Revenue Insight
+        <h2 className="font-semibold">
+          AI Insight
         </h2>
 
-        <p className="text-white/70 text-sm">
+        <p className="text-white/70 text-sm mt-2">
           Confidence: {forecast.confidence}%
         </p>
 
@@ -75,70 +78,67 @@ export default async function DashboardPage() {
         </p>
       </Card>
 
-      {/* HOT LEADS */}
+      {/* SYSTEM STATUS */}
       <Card>
         <h2 className="font-semibold mb-3">
-          High-Intent Leads
+          System Status
         </h2>
 
-        <div className="space-y-2">
-          {hotLeads.length === 0 && (
-            <p className="text-white/60 text-sm">
-              No high-intent leads detected
-            </p>
-          )}
-
-          {hotLeads.map((lead) => (
-            <div
-              key={lead.id}
-              className="flex justify-between border-b border-white/10 py-2 text-sm"
-            >
-              <div>
-                <div>{lead.city}</div>
-                <div className="text-white/50 text-xs">
-                  {lead.category}
-                </div>
-              </div>
-
-              <div className="text-right">
-                <div>${lead.value}</div>
-                <div className="text-white/50 text-xs">
-                  Score: {lead.score}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </Card>
-
-      {/* PIPELINE SNAPSHOT */}
-      <Card>
-        <h2 className="font-semibold mb-3">
-          Pipeline Overview
-        </h2>
-
-        <div className="grid grid-cols-3 gap-4 text-sm">
+        <div className="grid grid-cols-3 text-sm gap-4">
 
           <div>
             <div className="text-xl font-semibold">
-              {leads.filter(l => l.status === "new").length}
+              {activeLeads.length}
             </div>
-            <div className="text-white/60">New</div>
-          </div>
-
-          <div>
-            <div className="text-xl font-semibold">
-              {leads.filter(l => l.status === "contacted").length}
+            <div className="text-white/60">
+              Active Leads
             </div>
-            <div className="text-white/60">Contacted</div>
           </div>
 
           <div>
             <div className="text-xl font-semibold">
               {leads.filter(l => l.status === "won").length}
             </div>
-            <div className="text-white/60">Won</div>
+            <div className="text-white/60">
+              Closed Deals
+            </div>
           </div>
+
+          <div>
+            <div className="text-xl font-semibold">
+              {leads.filter(l => l.status === "new").length}
+            </div>
+            <div className="text-white/60">
+              New Intake
+            </div>
+          </div>
+
+        </div>
+      </Card>
+
+      {/* QUICK ACTIONS */}
+      <Card>
+        <h2 className="font-semibold mb-3">
+          Quick Actions
+        </h2>
+
+        <div className="flex gap-3 flex-wrap">
+
+          <ActionButton href="/leads">
+            View Leads
+          </ActionButton>
+
+          <ActionButton href="/pipeline">
+            Open Pipeline
+          </ActionButton>
+
+          <ActionButton href="/ai">
+            AI Control Panel
+          </ActionButton>
+
+          <ActionButton href="/analytics">
+            Analytics
+          </ActionButton>
 
         </div>
       </Card>
@@ -159,10 +159,32 @@ function Kpi({
 }) {
   return (
     <div className="border border-white/10 rounded-xl p-4">
-      <div className="text-white/60 text-sm">{label}</div>
+      <div className="text-white/60 text-sm">
+        {label}
+      </div>
       <div className="text-2xl font-semibold mt-1">
         {value}
       </div>
     </div>
+  );
+}
+
+/* ===============================
+   ACTION BUTTON
+=============================== */
+function ActionButton({
+  href,
+  children,
+}: {
+  href: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <a
+      href={href}
+      className="px-3 py-2 text-sm border border-white/20 rounded hover:bg-white hover:text-black transition"
+    >
+      {children}
+    </a>
   );
 }
