@@ -1,7 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useMemo, useState, useCallback } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import {
   Area,
@@ -25,25 +24,9 @@ const TELEGRAM_BOT =
   process.env.NEXT_PUBLIC_TELEGRAM_BOT_URL ?? "#";
 
 /* ===============================
-   ANIMATION
-=============================== */
-const fadeUp = {
-  hidden: { opacity: 0, y: 16 },
-  show: { opacity: 1, y: 0 },
-};
-
-const stagger = {
-  hidden: {},
-  show: {
-    transition: { staggerChildren: 0.06 },
-  },
-};
-
-/* ===============================
    PAGE
 =============================== */
 export default function HomePage() {
-  const router = useRouter();
   const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
 
   const revenueData = useMemo(
@@ -64,26 +47,20 @@ export default function HomePage() {
       { name: "Wed", leads: 240 },
       { name: "Thu", leads: 210 },
       { name: "Fri", leads: 320 },
-      { name: "Sat", leads: 280 },
-      { name: "Sun", leads: 340 },
     ],
     []
   );
 
   /* ===============================
-     STRIPE CHECKOUT (REAL FLOW)
+     STRIPE CHECKOUT (SINGLE SOURCE OF TRUTH)
   =============================== */
-  const go = useCallback(async (plan: string) => {
-    if (!plan) return;
-
+  const goToCheckout = useCallback(async (plan: string) => {
     try {
       setLoadingPlan(plan);
 
       const res = await fetch("/api/checkout", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ plan }),
       });
 
@@ -92,7 +69,7 @@ export default function HomePage() {
       if (data?.url) {
         window.location.href = data.url;
       } else {
-        console.error("No checkout URL returned");
+        console.error("Missing checkout URL");
       }
     } catch (err) {
       console.error("Checkout error:", err);
@@ -102,12 +79,11 @@ export default function HomePage() {
   }, []);
 
   return (
-    <main className="relative min-h-screen overflow-hidden bg-black text-white">
+    <main className="relative min-h-screen bg-black text-white overflow-hidden">
       <Background />
-
       <Navbar />
 
-      <Hero go={go} loadingPlan={loadingPlan} />
+      <Hero goToCheckout={goToCheckout} loadingPlan={loadingPlan} />
 
       <Stats />
 
@@ -115,11 +91,9 @@ export default function HomePage() {
 
       <Features />
 
-      <Pricing go={go} loadingPlan={loadingPlan} />
+      <Pricing goToCheckout={goToCheckout} loadingPlan={loadingPlan} />
 
-      <Operations />
-
-      <CTA go={go} />
+      <FinalCTA goToCheckout={goToCheckout} />
 
       <Footer />
     </main>
@@ -136,93 +110,67 @@ function Background() {
 }
 
 /* ===============================
-   NAVBAR
+   NAVBAR (SIMPLIFIED)
 =============================== */
 function Navbar() {
   return (
-    <motion.header
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      className="sticky top-0 z-50 border-b border-white/10 bg-black/40 backdrop-blur-2xl"
-    >
+    <div className="sticky top-0 z-50 border-b border-white/10 bg-black/40 backdrop-blur-xl">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-5">
-        <div>
-          <h1 className="text-xl font-semibold">NorthSky</h1>
-          <p className="text-xs text-zinc-400">Automation Infrastructure</p>
-        </div>
+        <div className="font-semibold">NorthSky</div>
 
-        <div className="hidden items-center gap-6 md:flex">
-          <a href="#features" className="text-sm text-zinc-400 hover:text-white">
-            Features
+        <div className="flex gap-4 text-sm text-zinc-400">
+          <a href="/demo" className="hover:text-white">
+            Demo
           </a>
-          <a href="#pricing" className="text-sm text-zinc-400 hover:text-white">
-            Pricing
-          </a>
-
-          <a href={TELEGRAM_BOT} target="_blank" rel="noreferrer">
-            <Button variant="outline">Telegram</Button>
+          <a href={TELEGRAM_BOT} className="hover:text-white">
+            Support
           </a>
         </div>
       </div>
-    </motion.header>
+    </div>
   );
 }
 
 /* ===============================
-   HERO
+   HERO (CLEAR MONEY FLOW)
 =============================== */
 function Hero({
-  go,
+  goToCheckout,
   loadingPlan,
 }: {
-  go: (plan: string) => void;
+  goToCheckout: (plan: string) => void;
   loadingPlan: string | null;
 }) {
   return (
-    <motion.section
-      initial="hidden"
-      animate="show"
-      variants={stagger}
-      className="mx-auto grid max-w-7xl gap-16 px-6 py-28 md:grid-cols-2"
-    >
-      <motion.div variants={fadeUp}>
-        <div className="inline-flex rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs text-zinc-300">
-          SaaS + Telegram Automation
-        </div>
-
-        <h1 className="mt-8 text-6xl font-semibold leading-tight">
-          Operate your{" "}
-          <span className="text-indigo-400">automation SaaS</span>
+    <section className="mx-auto grid max-w-7xl grid-cols-1 gap-12 px-6 py-28 md:grid-cols-2">
+      <div>
+        <h1 className="text-6xl font-semibold leading-tight">
+          Autonomous AI Revenue System
         </h1>
 
         <p className="mt-6 text-zinc-400">
-          Stripe billing, Telegram bots, lead routing, analytics — unified.
+          AI agents that find leads, qualify prospects, and drive conversions automatically.
         </p>
 
         <div className="mt-10 flex gap-4">
-          <Button onClick={() => go("growth")}>
-            {loadingPlan === "growth" ? "Loading..." : "Launch"}
+          <Button onClick={() => goToCheckout("growth")}>
+            {loadingPlan === "growth" ? "Loading..." : "Start"}
           </Button>
 
-          <a href={TELEGRAM_BOT} target="_blank" rel="noreferrer">
-            <Button variant="outline">Telegram</Button>
+          <a href="/demo" className="text-sm text-zinc-400 underline">
+            View Demo
           </a>
         </div>
-      </motion.div>
+      </div>
 
-      <motion.div variants={fadeUp}>
-        <Card className="border border-white/10 bg-white/5 p-6 backdrop-blur-2xl">
-          <h3 className="text-lg font-medium">Live Dashboard</h3>
-          <p className="text-sm text-zinc-400">Real-time system</p>
-
-          <div className="mt-6 space-y-3">
-            <Metric title="Revenue" value="$48,220" />
-            <Metric title="Leads" value="1,248" />
-            <Metric title="Conversion" value="24.8%" />
-          </div>
-        </Card>
-      </motion.div>
-    </motion.section>
+      <Card className="border border-white/10 bg-white/5 p-6">
+        <div className="space-y-2">
+          <Metric title="Revenue" value="$48,220" />
+          <Metric title="Leads" value="1,248" />
+          <Metric title="Conversion" value="24.8%" />
+        </div>
+      </Card>
+    </section>
   );
 }
 
@@ -231,32 +179,29 @@ function Hero({
 =============================== */
 function Stats() {
   return (
-    <motion.section
-      initial="hidden"
-      whileInView="show"
-      viewport={{ once: true }}
-      variants={stagger}
-      className="border-y border-white/10 bg-white/[0.02]"
-    >
-      <div className="mx-auto grid max-w-7xl grid-cols-2 gap-10 px-6 py-16 md:grid-cols-4">
-        {[
-          ["12k+", "Leads"],
-          ["$1.2M+", "Revenue"],
-          ["99.9%", "Uptime"],
-          ["24/7", "Automation"],
-        ].map(([v, l]) => (
-          <motion.div key={l} variants={fadeUp}>
-            <div className="text-4xl font-semibold">{v}</div>
-            <div className="text-sm text-zinc-400">{l}</div>
-          </motion.div>
-        ))}
+    <div className="border-y border-white/10 bg-white/5">
+      <div className="mx-auto grid max-w-7xl grid-cols-3 px-6 py-16 text-center">
+        <div>
+          <div className="text-3xl font-semibold">$1.2M+</div>
+          <div className="text-sm text-zinc-400">Revenue</div>
+        </div>
+
+        <div>
+          <div className="text-3xl font-semibold">12K+</div>
+          <div className="text-sm text-zinc-400">Leads</div>
+        </div>
+
+        <div>
+          <div className="text-3xl font-semibold">24/7</div>
+          <div className="text-sm text-zinc-400">Automation</div>
+        </div>
       </div>
-    </motion.section>
+    </div>
   );
 }
 
 /* ===============================
-   ANALYTICS
+   ANALYTICS (UNCHANGED LOGIC)
 =============================== */
 function Analytics({
   revenueData,
@@ -267,7 +212,7 @@ function Analytics({
 }) {
   return (
     <section className="mx-auto max-w-7xl px-6 py-28">
-      <h2 className="text-4xl font-semibold">Analytics</h2>
+      <h2 className="text-4xl font-semibold">Live System Analytics</h2>
 
       <div className="mt-10 grid gap-6 md:grid-cols-2">
         <ChartCard title="Revenue">
@@ -290,7 +235,7 @@ function ChartCard({
   children: React.ReactNode;
 }) {
   return (
-    <Card className="bg-white/5 p-6 border border-white/10">
+    <Card className="border border-white/10 bg-white/5 p-6">
       <h3>{title}</h3>
       {children}
     </Card>
@@ -302,19 +247,19 @@ function ChartCard({
 =============================== */
 function Features() {
   const items = [
-    "Telegram Bot System",
-    "Stripe Automation",
-    "Lead Engine",
-    "Webhook Layer",
-    "Analytics Core",
-    "SaaS Backend",
+    "AI Lead Engine",
+    "Stripe Billing",
+    "Automation Core",
+    "Webhook System",
+    "Analytics Layer",
+    "CRM System",
   ];
 
   return (
-    <section id="features" className="mx-auto max-w-7xl px-6 py-28">
+    <section className="mx-auto max-w-7xl px-6 py-28">
       <div className="grid gap-6 md:grid-cols-3">
         {items.map((i) => (
-          <Card key={i} className="bg-white/5 p-6 border border-white/10">
+          <Card key={i} className="border border-white/10 bg-white/5 p-6">
             {i}
           </Card>
         ))}
@@ -324,24 +269,27 @@ function Features() {
 }
 
 /* ===============================
-   PRICING (STRIPE READY)
+   PRICING (SINGLE PATH)
 =============================== */
 function Pricing({
-  go,
+  goToCheckout,
   loadingPlan,
 }: {
-  go: (plan: string) => void;
+  goToCheckout: (plan: string) => void;
   loadingPlan: string | null;
 }) {
   return (
-    <section id="pricing" className="mx-auto max-w-7xl px-6 py-28">
+    <section className="mx-auto max-w-7xl px-6 py-28">
       <div className="grid gap-6 md:grid-cols-3">
         {["starter", "growth", "elite"].map((p) => (
-          <Card key={p} className="bg-white/5 p-6 border border-white/10">
+          <Card key={p} className="border border-white/10 bg-white/5 p-6">
             <h3 className="capitalize">{p}</h3>
 
-            <Button className="mt-6 w-full" onClick={() => go(p)}>
-              {loadingPlan === p ? "Redirecting..." : "Upgrade"}
+            <Button
+              className="mt-6 w-full"
+              onClick={() => goToCheckout(p)}
+            >
+              {loadingPlan === p ? "Redirecting..." : "Get Access"}
             </Button>
           </Card>
         ))}
@@ -351,19 +299,29 @@ function Pricing({
 }
 
 /* ===============================
-   CTA / FOOTER / HELPERS
+   FINAL CTA (ONLY CONVERSION POINT)
 =============================== */
-function CTA({ go }: { go: (plan: string) => void }) {
+function FinalCTA({
+  goToCheckout,
+}: {
+  goToCheckout: (plan: string) => void;
+}) {
   return (
-    <section className="text-center py-28">
-      <h2 className="text-5xl font-semibold">Launch your system</h2>
-      <Button className="mt-8" onClick={() => go("growth")}>
-        Start
+    <section className="py-28 text-center">
+      <h2 className="text-5xl font-semibold">
+        Launch your AI system today
+      </h2>
+
+      <Button className="mt-8" onClick={() => goToCheckout("growth")}>
+        Start Now
       </Button>
     </section>
   );
 }
 
+/* ===============================
+   FOOTER
+=============================== */
 function Footer() {
   return (
     <footer className="border-t border-white/10 py-10 text-center text-sm text-zinc-500">
@@ -381,6 +339,9 @@ function Metric({ title, value }: { title: string; value: string }) {
   );
 }
 
+/* ===============================
+   CHART (UNCHANGED)
+=============================== */
 function Chart({
   type,
   dataKey,
