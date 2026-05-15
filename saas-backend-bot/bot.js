@@ -10,18 +10,28 @@ const crypto = require("crypto");
    INIT
 =============================== */
 const app = express();
-app.use(express.json());
 
-const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true });
+/* Stripe webhook MUST use raw body */
+app.use("/stripe-webhook", express.raw({ type: "application/json" }));
+app.use(express.json({ limit: "1mb" }));
+
+/* ENV GUARDS */
+if (!process.env.TELEGRAM_BOT_TOKEN) throw new Error("Missing TELEGRAM_BOT_TOKEN");
+if (!process.env.STRIPE_SECRET_KEY) throw new Error("Missing STRIPE_SECRET_KEY");
+
+/* SERVICES */
+const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, {
+  polling: true,
+});
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
   apiVersion: "2025-04-30.basil",
 });
 
-const twilioClient = twilio(
-  process.env.TWILIO_ACCOUNT_SID,
-  process.env.TWILIO_AUTH_TOKEN
-);
+const twilioClient =
+  process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN
+    ? twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN)
+    : null;
 
 /* ===============================
    MEMORY DB (replace with Postgres later)
@@ -39,13 +49,20 @@ const db = {
 =============================== */
 const log = (...args) => console.log("[CALLCENTER]", ...args);
 
-const sendTG = (id, msg) =>
-  bot.sendMessage(id, msg).catch(() => {});
+const sendTG = async (id, msg) => {
+  try {
+    await bot.sendMessage(id, msg);
+  } catch (err) {
+    log("Telegram error:", err.message);
+  }
+};
 
 /* ===============================
    USER SYSTEM
 =============================== */
 function getUser(tg) {
+  if (!tg?.id) return null;
+
   if (!db.users.has(tg.id)) {
     db.users.set(tg.id, {
       id: tg.id,
@@ -55,6 +72,7 @@ function getUser(tg) {
       deals: 0,
     });
   }
+
   return db.users.get(tg.id);
 }
 
@@ -81,15 +99,15 @@ function createLead(data) {
 }
 
 function broadcastLead(lead) {
-  const msg = `
-🔥 NEW LEAD
-📍 ${lead.city}
-🏷 ${lead.category}
-⭐ ${lead.score}
-💰 $${lead.price}
-
-BUY: /buy ${lead.id}
-  `.trim();
+  const msg = [
+    "NEW LEAD",
+    `City: ${lead.city}`,
+    `Category: ${lead.category}`,
+    `Score: ${lead.score}`,
+    `Price: $${lead.price}`,
+    "",
+    `BUY: /buy ${lead.id}`,
+  ].join("\n");
 
   for (const u of db.users.values()) {
     sendTG(u.id, msg);
@@ -115,9 +133,14 @@ function lockLead(leadId, userId) {
 }
 
 /* ===============================
-   TWILIO CALL (REAL PSTN CALL)
+   TWILIO CALL (SAFE)
 =============================== */
 async function makeCall(to, message) {
+  if (!twilioClient) {
+    log("Twilio not configured");
+    return null;
+  }
+
   const callId = crypto.randomUUID();
 
   db.calls.set(callId, {
@@ -142,16 +165,16 @@ async function makeCall(to, message) {
     db.calls.get(callId).status = "completed";
     db.calls.get(callId).sid = call.sid;
 
+    return callId;
   } catch (err) {
     db.calls.get(callId).status = "failed";
     log("CALL_ERROR", err.message);
+    return null;
   }
-
-  return callId;
 }
 
 /* ===============================
-   AI LOGIC (HOOK FOR GPT LATER)
+   AI FLOW ENGINE
 =============================== */
 function ai(stage, lead) {
   const flow = {
@@ -176,7 +199,7 @@ function ai(stage, lead) {
 }
 
 /* ===============================
-   QUEUE WORKER (REAL UPGRADE)
+   QUEUE WORKER
 =============================== */
 setInterval(async () => {
   const job = db.queue.shift();
@@ -192,7 +215,7 @@ setInterval(async () => {
 
   funnel.stage = step.next;
 
-  sendTG(user.id, `📡 ${step.sms}`);
+  await sendTG(user.id, `MESSAGE: ${step.sms}`);
 
   await makeCall(user.phone, step.voice);
 
@@ -203,8 +226,7 @@ setInterval(async () => {
       stage: step.next,
     });
   }
-
-}, 2000);
+}, 3000);
 
 /* ===============================
    STRIPE WEBHOOK
@@ -218,7 +240,7 @@ app.post("/stripe-webhook", async (req, res) => {
     );
 
     if (event.type === "checkout.session.completed") {
-      const { leadId, userId } = event.data.object.metadata;
+      const { leadId, userId } = event.data.object.metadata || {};
 
       const lead = db.leads.get(leadId);
       const user = db.users.get(Number(userId));
@@ -228,10 +250,10 @@ app.post("/stripe-webhook", async (req, res) => {
       lead.status = "sold";
       user.deals++;
 
-      sendTG(user.id, `🔥 DEAL CLOSED: ${lead.city}`);
+      await sendTG(user.id, `DEAL CLOSED: ${lead.city}`);
 
       if (user.phone) {
-        await makeCall(user.phone, `Your purchase in ${lead.city} is confirmed`);
+        await makeCall(user.phone, `Purchase confirmed in ${lead.city}`);
 
         db.queue.push({
           user,
@@ -242,8 +264,8 @@ app.post("/stripe-webhook", async (req, res) => {
     }
 
     res.sendStatus(200);
-
-  } catch {
+  } catch (err) {
+    log("Webhook error:", err.message);
     res.sendStatus(400);
   }
 });
@@ -252,6 +274,10 @@ app.post("/stripe-webhook", async (req, res) => {
    TELEGRAM COMMANDS
 =============================== */
 bot.onText(/\/add/, (msg) => {
+  const user = getUser(msg.from);
+
+  if (!user) return;
+
   createLead({
     city: "Calgary",
     category: "roofing",
@@ -265,7 +291,8 @@ bot.onText(/\/add/, (msg) => {
 bot.onText(/\/leads/, (msg) => {
   const leads = [...db.leads.values()].slice(-10);
 
-  sendTG(msg.chat.id,
+  sendTG(
+    msg.chat.id,
     leads.map(l => `${l.id} | ${l.city} | $${l.price}`).join("\n")
   );
 });
@@ -285,5 +312,5 @@ bot.onText(/\/buy (.+)/, (msg, match) => {
    START
 =============================== */
 app.listen(process.env.PORT || 3000, () => {
-  console.log("🚀 CALL CENTER SYSTEM ONLINE (UPGRADED)");
+  console.log("CALL CENTER SYSTEM ONLINE");
 });
