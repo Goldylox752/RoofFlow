@@ -1,6 +1,59 @@
 import { supabase } from "@/lib/supabase";
 
 /* ===============================
+   CREATE LEAD
+=============================== */
+export async function createLead({
+  name,
+  email,
+  phone,
+  city,
+  source = "web",
+}: {
+  name?: string;
+  email?: string;
+  phone?: string;
+  city?: string;
+  source?: string;
+}) {
+  if (!email && !phone) {
+    throw new Error("Email or phone required");
+  }
+
+  const normalizedEmail = email?.trim().toLowerCase() || null;
+
+  const { data: existing, error: fetchError } = await supabase
+    .from("leads")
+    .select("id")
+    .eq("email", normalizedEmail)
+    .maybeSingle();
+
+  if (fetchError) throw new Error(fetchError.message);
+
+  if (existing?.id) {
+    return { id: existing.id, duplicate: true };
+  }
+
+  const { data, error } = await supabase
+    .from("leads")
+    .insert({
+      name: name?.trim() || null,
+      email: normalizedEmail,
+      phone: phone?.trim() || null,
+      city: city?.trim() || null,
+      source,
+      status: "new",
+      created_at: new Date().toISOString(),
+    })
+    .select()
+    .single();
+
+  if (error) throw new Error(error.message);
+
+  return data;
+}
+
+/* ===============================
    GET SINGLE LEAD
 =============================== */
 export async function getLead(id: string) {
@@ -15,7 +68,7 @@ export async function getLead(id: string) {
 }
 
 /* ===============================
-   LOCK LEAD (ATOMIC CLAIM)
+   LOCK LEAD
 =============================== */
 export async function lockLead(leadId: string, userId: string) {
   const { data, error } = await supabase
@@ -36,7 +89,7 @@ export async function lockLead(leadId: string, userId: string) {
 }
 
 /* ===============================
-   SELL / FINALIZE LEAD
+   SELL LEAD
 =============================== */
 export async function sellLead(leadId: string, userId: string) {
   const { data, error } = await supabase
@@ -44,8 +97,8 @@ export async function sellLead(leadId: string, userId: string) {
     .update({
       status: "sold",
       buyer_id: userId,
-      "stripe.paid": true,
-      "stripe.paid_at": new Date().toISOString(),
+      stripe_paid: true,
+      stripe_paid_at: new Date().toISOString(),
     })
     .eq("id", leadId)
     .select()
