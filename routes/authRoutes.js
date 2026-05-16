@@ -3,6 +3,7 @@ const bcrypt = require("bcryptjs");
 const { createClient } = require("@supabase/supabase-js");
 const crypto = require("crypto");
 
+// ⚠️ These MUST exist at these paths
 const { signAccessToken, signRefreshToken } = require("../lib/jwt");
 const { createSession, deleteSession } = require("../lib/session.store");
 
@@ -22,11 +23,12 @@ const supabase = createClient(
 const normalizeEmail = (email) =>
   typeof email === "string" ? email.toLowerCase().trim() : null;
 
-const error = (res, status, code) =>
-  res.status(status).json({
+const sendError = (res, status, code) => {
+  return res.status(status).json({
     success: false,
     error: code,
   });
+};
 
 /* ===============================
    REGISTER
@@ -37,7 +39,7 @@ router.post("/register", async (req, res) => {
     const password = req.body?.password;
 
     if (!email || !password) {
-      return error(res, 400, "missing_credentials");
+      return sendError(res, 400, "missing_credentials");
     }
 
     const { data: existing } = await supabase
@@ -47,7 +49,7 @@ router.post("/register", async (req, res) => {
       .maybeSingle();
 
     if (existing) {
-      return error(res, 409, "user_exists");
+      return sendError(res, 409, "user_exists");
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -63,7 +65,10 @@ router.post("/register", async (req, res) => {
       .select("id, email, role, plan")
       .single();
 
-    if (insertError) throw insertError;
+    if (insertError) {
+      console.error("SUPABASE_INSERT_ERROR", insertError);
+      return sendError(res, 500, "registration_failed");
+    }
 
     return res.status(201).json({
       success: true,
@@ -71,7 +76,7 @@ router.post("/register", async (req, res) => {
     });
   } catch (err) {
     console.error("REGISTER_ERROR", err);
-    return error(res, 500, "registration_failed");
+    return sendError(res, 500, "registration_failed");
   }
 });
 
@@ -84,7 +89,7 @@ router.post("/login", async (req, res) => {
     const password = req.body?.password;
 
     if (!email || !password) {
-      return error(res, 400, "missing_credentials");
+      return sendError(res, 400, "missing_credentials");
     }
 
     const { data: user } = await supabase
@@ -94,13 +99,13 @@ router.post("/login", async (req, res) => {
       .maybeSingle();
 
     if (!user) {
-      return error(res, 401, "invalid_credentials");
+      return sendError(res, 401, "invalid_credentials");
     }
 
     const passwordOk = await bcrypt.compare(password, user.password);
 
     if (!passwordOk) {
-      return error(res, 401, "invalid_credentials");
+      return sendError(res, 401, "invalid_credentials");
     }
 
     const jti = crypto.randomUUID();
@@ -134,7 +139,7 @@ router.post("/login", async (req, res) => {
     });
   } catch (err) {
     console.error("LOGIN_ERROR", err);
-    return error(res, 500, "login_failed");
+    return sendError(res, 500, "login_failed");
   }
 });
 
@@ -155,7 +160,7 @@ router.post("/logout", async (req, res) => {
     });
   } catch (err) {
     console.error("LOGOUT_ERROR", err);
-    return error(res, 500, "logout_failed");
+    return sendError(res, 500, "logout_failed");
   }
 });
 
