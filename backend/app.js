@@ -5,47 +5,63 @@ const cors = require("cors");
 const rateLimit = require("express-rate-limit");
 const crypto = require("crypto");
 
-/* ===============================
-   LOGGER (SAFE FALLBACK)
-=============================== */
-let logger;
-
-try {
-  logger = require("./lib/logger");
-} catch (err) {
-  console.warn("Logger not found, using fallback console logger");
-
-  logger = {
-    info: console.log,
-    warn: console.warn,
-    error: console.error,
-  };
-}
-
 const app = express();
 
 /* ===============================
-   BASIC SECURITY
+   SAFE LOGGER (NO CRASH GUARANTEE)
+=============================== */
+const logger = (() => {
+  try {
+    return require("./lib/logger");
+  } catch (err) {
+    console.warn("⚠️ Logger not found — using console fallback");
+
+    return {
+      info: console.log,
+      warn: console.warn,
+      error: console.error,
+    };
+  }
+})();
+
+/* ===============================
+   ENV SAFETY CHECK (CRITICAL)
+=============================== */
+const REQUIRED_ENV = ["FRONTEND_URL"];
+
+REQUIRED_ENV.forEach((key) => {
+  if (!process.env[key]) {
+    console.warn(`⚠️ Missing env: ${key}`);
+  }
+});
+
+/* ===============================
+   SECURITY SETTINGS
 =============================== */
 app.set("trust proxy", 1);
 app.disable("x-powered-by");
 
 /* ===============================
-   BODY PARSER
+   BODY PARSER (SAFE LIMITS)
 =============================== */
 app.use(express.json({ limit: "2mb" }));
 
 /* ===============================
-   REQUEST ID MIDDLEWARE
+   REQUEST ID (GUARANTEED)
 =============================== */
 app.use((req, res, next) => {
-  req.id = crypto.randomUUID();
+  try {
+    req.id = crypto.randomUUID();
+  } catch {
+    req.id = `${Date.now()}-${Math.random()}`;
+  }
+
   res.setHeader("x-request-id", req.id);
   next();
 });
 
 /* ===============================
-   RATE LIMITING
+   RATE LIMITING (FAIL-SAFE)
 =============================== */
 app.use(
   rateLimit({
@@ -53,15 +69,23 @@ app.use(
     max: 500,
     standardHeaders: true,
     legacyHeaders: false,
-    message: {
-      success: false,
-      error: "Too many requests",
+    handler: (req, res) => {
+      logger.warn?.(
+        { requestId: req.id, ip: req.ip },
+        "Rate limit triggered"
+      );
+
+      res.status(429).json({
+        success: false,
+        error: "Too many requests",
+        requestId: req.id,
+      });
     },
   })
 );
 
 /* ===============================
-   CORS
+   CORS (HARDENED)
 =============================== */
 const allowedOrigins = new Set(
   [process.env.FRONTEND_URL, "http://localhost:3000"].filter(Boolean)
@@ -75,7 +99,7 @@ app.use(
       if (allowedOrigins.has(origin)) return cb(null, true);
 
       logger.warn?.({ origin }, "Blocked CORS request");
-      return cb(new Error("CORS blocked"), false);
+      return cb(null, false);
     },
     credentials: true,
   })
@@ -98,32 +122,36 @@ app.use((req, res, next) => {
 });
 
 /* ===============================
-   RESPONSE TIMER
+   RESPONSE TIMER (SAFE EXIT)
 =============================== */
 app.use((req, res, next) => {
   const start = process.hrtime();
 
   res.on("finish", () => {
-    const diff = process.hrtime(start);
-    const ms = diff[0] * 1000 + diff[1] / 1e6;
+    try {
+      const diff = process.hrtime(start);
+      const ms = diff[0] * 1000 + diff[1] / 1e6;
 
-    logger.info?.(
-      {
-        requestId: req.id,
-        method: req.method,
-        path: req.path,
-        status: res.statusCode,
-        durationMs: Math.round(ms),
-      },
-      "Request completed"
-    );
+      logger.info?.(
+        {
+          requestId: req.id,
+          method: req.method,
+          path: req.path,
+          status: res.statusCode,
+          durationMs: Math.round(ms),
+        },
+        "Request completed"
+      );
+    } catch (err) {
+      console.error("Timing logger failed:", err);
+    }
   });
 
   next();
 });
 
 /* ===============================
-   AUTH PLACEHOLDER
+   AUTH PLACEHOLDER (SAFE EXTENSION POINT)
 =============================== */
 app.use((req, res, next) => {
   req.user = null;
@@ -131,27 +159,33 @@ app.use((req, res, next) => {
 });
 
 /* ===============================
-   SAFE ROUTE LOADER
+   SAFE ROUTE LOADER (ISOLATED FAILURES)
 =============================== */
 const loadRoute = (path) => {
   try {
     const route = require(path);
-    return route || express.Router();
+
+    if (!route) {
+      logger.warn?.({ path }, "Empty route module");
+      return express.Router();
+    }
+
+    return route;
   } catch (err) {
     logger.error?.(
       {
         path,
         message: err.message,
       },
-      "Failed to load route"
+      "Route load failed"
     );
 
-    return express.Router();
+    return express.Router(); // prevents full app crash
   }
 };
 
 /* ===============================
-   ROUTES
+   API ROUTES
 =============================== */
 app.use("/api/webhook", loadRoute("./routes/webhook"));
 app.use("/api/telegram", loadRoute("./routes/telegramWebhook"));
@@ -159,7 +193,7 @@ app.use("/api/leads", loadRoute("./routes/leadRoutes"));
 app.use("/api/payments", loadRoute("./routes/payments"));
 
 /* ===============================
-   HEALTH CHECK
+   HEALTH CHECK (DEPLOY MONITORING)
 =============================== */
 app.get("/health", (req, res) => {
   res.json({
@@ -167,16 +201,17 @@ app.get("/health", (req, res) => {
     status: "healthy",
     uptime: process.uptime(),
     requestId: req.id,
+    env: process.env.NODE_ENV || "development",
   });
 });
 
 /* ===============================
-   ROOT
+   ROOT (DEPLOY VERIFICATION)
 =============================== */
 app.get("/", (req, res) => {
   res.json({
     success: true,
-    message: "Backend running",
+    message: "SaaS backend running",
   });
 });
 
@@ -201,17 +236,21 @@ app.use((req, res) => {
 });
 
 /* ===============================
-   GLOBAL ERROR HANDLER
+   GLOBAL ERROR HANDLER (SAFE)
 =============================== */
 app.use((err, req, res, next) => {
-  logger.error?.(
-    {
-      message: err.message,
-      stack: err.stack,
-      requestId: req.id,
-    },
-    "Unhandled error"
-  );
+  try {
+    logger.error?.(
+      {
+        message: err.message,
+        stack: err.stack,
+        requestId: req.id,
+      },
+      "Unhandled error"
+    );
+  } catch {
+    console.error("Logger crashed during error handling");
+  }
 
   res.status(500).json({
     success: false,
