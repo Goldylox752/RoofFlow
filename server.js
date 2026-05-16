@@ -16,34 +16,40 @@ const server = app.listen(PORT, () => {
 });
 
 /* ===============================
-   STATE
+   STATE TRACKING
 =============================== */
-let shuttingDown = false;
+let isShuttingDown = false;
 
 /* ===============================
    SHUTDOWN HANDLER
 =============================== */
-function shutdown(signal) {
-  if (shuttingDown) return;
-  shuttingDown = true;
+async function shutdown(signal) {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
 
   console.log(`Shutdown initiated: ${signal}`);
 
-  // Stop accepting new requests
-  server.close((err) => {
-    if (err) {
-      console.error("Error closing HTTP server:", err);
-    } else {
-      console.log("HTTP server closed cleanly");
-    }
-  });
+  try {
+    // Stop accepting new requests
+    await new Promise((resolve) => {
+      server.close((err) => {
+        if (err) {
+          console.error("Error closing HTTP server:", err);
+        } else {
+          console.log("HTTP server closed cleanly");
+        }
+        resolve();
+      });
+    });
 
-  // Future cleanup hooks (safe for SaaS scaling)
-  cleanupResources().catch((err) => {
-    console.error("Cleanup error:", err);
-  });
+    // Future SaaS cleanup hooks (safe expansion point)
+    await cleanupResources();
 
-  // Hard stop fallback (prevents hanging deploys)
+  } catch (err) {
+    console.error("Shutdown error:", err);
+  }
+
+  // Force exit safeguard (prevents stuck deployments)
   setTimeout(() => {
     console.error("Forced shutdown (timeout reached)");
     process.exit(1);
@@ -51,15 +57,14 @@ function shutdown(signal) {
 }
 
 /* ===============================
-   RESOURCE CLEANUP (EXTENDABLE)
+   CLEANUP HOOKS (EXTENDABLE)
 =============================== */
 async function cleanupResources() {
-  // Placeholder for future SaaS infrastructure shutdowns:
-
-  // await closeDatabase();
-  // await closeRedis();
-  // await stopQueueWorkers();
-  // await flushLogs();
+  // Future integrations:
+  // - database close
+  // - redis shutdown
+  // - queue worker stop
+  // - AI agent loop stop
 
   return true;
 }
@@ -71,7 +76,7 @@ process.on("SIGINT", () => shutdown("SIGINT"));
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 
 /* ===============================
-   GLOBAL SAFETY NET
+   GLOBAL ERROR SAFETY
 =============================== */
 process.on("uncaughtException", (err) => {
   console.error("Uncaught Exception:", err);
