@@ -5,7 +5,7 @@ const app = require("./app");
 const PORT = process.env.PORT || 3000;
 
 /* ===============================
-   START SERVER (SAFE BOOT)
+   START SERVER
 =============================== */
 const server = app.listen(PORT, () => {
   console.log("=================================");
@@ -16,37 +16,52 @@ const server = app.listen(PORT, () => {
 });
 
 /* ===============================
-   STATE TRACKING
+   STATE
 =============================== */
-let isShuttingDown = false;
+let shuttingDown = false;
 
 /* ===============================
-   GRACEFUL SHUTDOWN (PRODUCTION SAFE)
+   SHUTDOWN HANDLER
 =============================== */
 function shutdown(signal) {
-  if (isShuttingDown) return;
-  isShuttingDown = true;
+  if (shuttingDown) return;
+  shuttingDown = true;
 
-  console.log(`Shutdown triggered: ${signal}`);
+  console.log(`Shutdown initiated: ${signal}`);
 
-  try {
-    server.close(() => {
+  // Stop accepting new requests
+  server.close((err) => {
+    if (err) {
+      console.error("Error closing HTTP server:", err);
+    } else {
       console.log("HTTP server closed cleanly");
-    });
+    }
+  });
 
-    // Future hooks:
-    // await closeDatabase();
-    // await closeRedis();
-    // await stopWorkers();
+  // Future cleanup hooks (safe for SaaS scaling)
+  cleanupResources().catch((err) => {
+    console.error("Cleanup error:", err);
+  });
 
-  } catch (err) {
-    console.error("Error during shutdown:", err);
-  }
-
+  // Hard stop fallback (prevents hanging deploys)
   setTimeout(() => {
-    console.error("Forced shutdown due to timeout");
+    console.error("Forced shutdown (timeout reached)");
     process.exit(1);
   }, 10000).unref();
+}
+
+/* ===============================
+   RESOURCE CLEANUP (EXTENDABLE)
+=============================== */
+async function cleanupResources() {
+  // Placeholder for future SaaS infrastructure shutdowns:
+
+  // await closeDatabase();
+  // await closeRedis();
+  // await stopQueueWorkers();
+  // await flushLogs();
+
+  return true;
 }
 
 /* ===============================
@@ -56,7 +71,7 @@ process.on("SIGINT", () => shutdown("SIGINT"));
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 
 /* ===============================
-   GLOBAL ERROR SAFETY
+   GLOBAL SAFETY NET
 =============================== */
 process.on("uncaughtException", (err) => {
   console.error("Uncaught Exception:", err);
