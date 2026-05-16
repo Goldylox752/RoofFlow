@@ -1,7 +1,6 @@
-const router = require("express").Router();
-const { z } = require("zod");
-
-const { createLead, getLeads } = require("../services/leads.service");
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { createLead, getLeads } from "@/services/leads.service";
 
 /* ===============================
    VALIDATION SCHEMA
@@ -15,57 +14,54 @@ const createLeadSchema = z.object({
 });
 
 /* ===============================
-   CREATE LEAD
+   GET LEADS
 =============================== */
-router.post("/", async (req, res) => {
-  try {
-    // Validate input
-    const parsed = createLeadSchema.safeParse(req.body);
-
-    if (!parsed.success) {
-      return res.status(400).json({
-        success: false,
-        error: "Invalid request data",
-        details: parsed.error.flatten(),
-      });
-    }
-
-    // Create lead via service layer
-    const lead = await createLead(parsed.data);
-
-    return res.status(201).json({
-      success: true,
-      lead,
-    });
-  } catch (err) {
-    console.error("Create lead error:", err);
-
-    return res.status(500).json({
-      success: false,
-      error: "Failed to create lead",
-    });
-  }
-});
-
-/* ===============================
-   GET ALL LEADS
-=============================== */
-router.get("/", async (req, res) => {
+export async function GET() {
   try {
     const leads = await getLeads();
 
-    return res.status(200).json({
+    return NextResponse.json({
       success: true,
       leads,
     });
   } catch (err) {
-    console.error("Get leads error:", err);
-
-    return res.status(500).json({
-      success: false,
-      error: "Failed to fetch leads",
-    });
+    return NextResponse.json(
+      { success: false, error: "Failed to fetch leads" },
+      { status: 500 }
+    );
   }
-});
+}
 
-module.exports = router;
+/* ===============================
+   CREATE LEAD
+=============================== */
+export async function POST(req: Request) {
+  try {
+    const body = await req.json();
+
+    const parsed = createLeadSchema.safeParse(body);
+
+    if (!parsed.success) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Invalid request data",
+          details: parsed.error.flatten(),
+        },
+        { status: 400 }
+      );
+    }
+
+    const lead = await createLead(parsed.data);
+
+    return NextResponse.json(
+      { success: true, lead },
+      { status: 201 }
+    );
+  } catch (err) {
+    return NextResponse.json(
+      { success: false, error: "Failed to create lead" },
+      { status: 500 }
+    );
+  }
+}
