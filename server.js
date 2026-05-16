@@ -1,28 +1,16 @@
-const app = require("./src/app");
+require("dotenv").config();
+const app = require("./app");
 
 const PORT = process.env.PORT || 3000;
 
 const server = app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  console.log("🚀 Server running on port", PORT);
 });
 
-/* ===============================
-   GRACEFUL SHUTDOWN
-=============================== */
-const shutdown = (signal) => {
-  console.log(`\n🛑 Received ${signal}. Shutting down gracefully...`);
-
-  server.close(() => {
-    console.log("✅ HTTP server closed");
-    process.exit(0);
-  });
-
-  // force exit after 10s
-  setTimeout(() => {
-    console.error("❌ Forced shutdown");
-    process.exit(1);
-  }, 10000);
+/* graceful shutdown */
+const shutdown = () => {
+  server.close(() => process.exit(0));
 };
 
-process.on("SIGINT", () => shutdown("SIGINT"));
-process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);
