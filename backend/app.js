@@ -4,7 +4,23 @@ const express = require("express");
 const cors = require("cors");
 const rateLimit = require("express-rate-limit");
 const crypto = require("crypto");
-const logger = require("./lib/logger");
+
+/* ===============================
+   LOGGER (SAFE FALLBACK)
+=============================== */
+let logger;
+
+try {
+  logger = require("./lib/logger");
+} catch (err) {
+  console.warn("Logger not found, using fallback console logger");
+
+  logger = {
+    info: console.log,
+    warn: console.warn,
+    error: console.error,
+  };
+}
 
 const app = express();
 
@@ -58,7 +74,7 @@ app.use(
 
       if (allowedOrigins.has(origin)) return cb(null, true);
 
-      logger.warn({ origin }, "Blocked CORS request");
+      logger.warn?.({ origin }, "Blocked CORS request");
       return cb(new Error("CORS blocked"), false);
     },
     credentials: true,
@@ -69,7 +85,7 @@ app.use(
    REQUEST LOGGER
 =============================== */
 app.use((req, res, next) => {
-  logger.info(
+  logger.info?.(
     {
       method: req.method,
       path: req.path,
@@ -91,7 +107,7 @@ app.use((req, res, next) => {
     const diff = process.hrtime(start);
     const ms = diff[0] * 1000 + diff[1] / 1e6;
 
-    logger.info(
+    logger.info?.(
       {
         requestId: req.id,
         method: req.method,
@@ -115,20 +131,14 @@ app.use((req, res, next) => {
 });
 
 /* ===============================
-   SAFE ROUTE LOADER (HARDENED)
+   SAFE ROUTE LOADER
 =============================== */
 const loadRoute = (path) => {
   try {
     const route = require(path);
-
-    if (!route) {
-      logger.warn({ path }, "Route returned empty module");
-      return express.Router();
-    }
-
-    return route;
+    return route || express.Router();
   } catch (err) {
-    logger.error(
+    logger.error?.(
       {
         path,
         message: err.message,
@@ -174,7 +184,7 @@ app.get("/", (req, res) => {
    404 HANDLER
 =============================== */
 app.use((req, res) => {
-  logger.warn(
+  logger.warn?.(
     {
       method: req.method,
       path: req.path,
@@ -194,7 +204,7 @@ app.use((req, res) => {
    GLOBAL ERROR HANDLER
 =============================== */
 app.use((err, req, res, next) => {
-  logger.error(
+  logger.error?.(
     {
       message: err.message,
       stack: err.stack,
