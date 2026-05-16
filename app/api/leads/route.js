@@ -10,9 +10,10 @@ const { calculateScore, getTier } = require("../utils/scoring");
 const { calculatePrice } = require("../services/pricingEngine");
 
 /* ===============================
-   ENV CHECK (fail fast)
+   ENV SAFETY (FAIL FAST)
 =============================== */
-if (!process.env.CLIENT_URL) {
+const CLIENT_URL = process.env.CLIENT_URL;
+if (!CLIENT_URL) {
   throw new Error("Missing CLIENT_URL");
 }
 
@@ -20,37 +21,48 @@ const TG_TOKEN = process.env.TG_TOKEN;
 const TG_CHAT_ID = process.env.TG_CHAT_ID;
 
 /* ===============================
-   TELEGRAM (NON-BLOCKING)
+   TELEGRAM (NON-BLOCKING + SAFE)
 =============================== */
-function sendTelegram(message) {
+async function sendTelegram(message) {
   if (!TG_TOKEN || !TG_CHAT_ID) return;
 
-  fetch(`https://api.telegram.org/bot${TG_TOKEN}/sendMessage`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      chat_id: TG_CHAT_ID,
-      text: message,
-      parse_mode: "Markdown",
-    }),
-  }).catch(() => {});
+  try {
+    await fetch(`https://api.telegram.org/bot${TG_TOKEN}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: TG_CHAT_ID,
+        text: message,
+        parse_mode: "Markdown",
+      }),
+    });
+  } catch {
+    // never crash main flow
+  }
 }
 
 /* ===============================
-   HELPERS
+   HELPERS (CLEAN + SAFE)
 =============================== */
-const clean = (v) => (typeof v === "string" ? v.trim() : null);
+const clean = (v) =>
+  typeof v === "string" ? v.trim() : null;
 
 const normalizeEmail = (email) =>
   clean(email)?.toLowerCase() || null;
 
-const sanitizeUTM = (v) =>
+const sanitize = (v) =>
   clean(v)?.slice(0, 120) || null;
 
+const getClientIP = (req) =>
+  (req.headers["x-forwarded-for"] || "")
+    .split(",")[0]
+    .trim() || req.ip;
+
 /* ===============================
-   STRIPE CHECKOUT
+   STRIPE CHECKOUT CREATION
+   (ISOLATED = EASY TO EVOLVE)
 =============================== */
-async function createCheckoutSession({ lead, tier, score, price }) {
+async function createCheckout({ lead, tier, score, price }) {
   try {
     return await stripe.checkout.sessions.create({
       mode: "payment",
@@ -65,8 +77,8 @@ async function createCheckoutSession({ lead, tier, score, price }) {
             currency: "cad",
             unit_amount: Math.round(Number(price) * 100),
             product_data: {
-              name: `NorthSky ${tier} Access`,
-              description: "AI SaaS automation system",
+              name: `NorthSky ${tier} Plan`,
+              description: "AI-driven SaaS automation system",
             },
           },
         },
@@ -79,24 +91,25 @@ async function createCheckoutSession({ lead, tier, score, price }) {
         email: lead.email || "",
       },
 
-      success_url: `${process.env.CLIENT_URL}/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${process.env.CLIENT_URL}/cancel`,
+      success_url: `${CLIENT_URL}/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${CLIENT_URL}/cancel`,
 
       expires_at: Math.floor(Date.now() / 1000) + 60 * 30,
     });
   } catch (err) {
-    console.error("Stripe checkout error:", err);
-    throw new Error("Failed to create checkout session");
+    console.error("Stripe error:", err);
+    throw new Error("checkout_creation_failed");
   }
 }
 
 /* ===============================
-   ROUTE
+   MAIN ROUTE (AI SALES ENGINE)
 =============================== */
 router.post("/", async (req, res) => {
-  const startTime = Date.now();
+  const start = Date.now();
 
   try {
+    /* ---------- INPUT ---------- */
     let {
       name,
       email,
@@ -107,17 +120,16 @@ router.post("/", async (req, res) => {
       utm_medium,
     } = req.body || {};
 
-    /* ---------- normalize ---------- */
     name = clean(name);
     email = normalizeEmail(email);
     phone = clean(phone);
     city = clean(city);
 
-    utm_source = sanitizeUTM(utm_source);
-    utm_campaign = sanitizeUTM(utm_campaign);
-    utm_medium = sanitizeUTM(utm_medium);
+    utm_source = sanitize(utm_source);
+    utm_campaign = sanitize(utm_campaign);
+    utm_medium = sanitize(utm_medium);
 
-    /* ---------- validation ---------- */
+    /* ---------- VALIDATION ---------- */
     if (!email && !phone) {
       return res.status(400).json({
         success: false,
@@ -125,34 +137,29 @@ router.post("/", async (req, res) => {
       });
     }
 
-    /* ---------- idempotency ---------- */
+    /* ---------- IDEMPOTENCY KEY ---------- */
     const idempotencyKey = buildKey(email, phone, city);
 
-    const { data: existing } = await supabase
+    const { data: existingLead } = await supabase
       .from("leads")
-      .select("id")
+      .select("id, email")
       .eq("idempotency_key", idempotencyKey)
       .maybeSingle();
 
-    if (existing) {
+    if (existingLead) {
       return res.json({
         success: true,
         duplicate: true,
-        lead: existing,
+        lead: existingLead,
       });
     }
 
-    /* ---------- scoring ---------- */
+    /* ---------- AI SCORING ENGINE ---------- */
     const score = calculateScore({ email, phone, city });
     const tier = getTier(score);
     const price = calculatePrice(score, city);
 
-    /* ---------- metadata ---------- */
-    const ip =
-      (req.headers["x-forwarded-for"] || "")
-        .split(",")[0]
-        .trim() || req.ip;
-
+    /* ---------- LEAD CREATION ---------- */
     const leadId = crypto.randomUUID();
 
     const leadPayload = {
@@ -176,13 +183,12 @@ router.post("/", async (req, res) => {
       utm_medium,
 
       source: req.headers.origin || "direct",
-      ip_address: ip,
-      user_agent: req.headers["user-agent"],
+      ip_address: getClientIP(req),
+      user_agent: req.headers["user-agent"] || null,
 
       created_at: new Date().toISOString(),
     };
 
-    /* ---------- insert lead ---------- */
     const { data: lead, error } = await supabase
       .from("leads")
       .insert([leadPayload])
@@ -190,46 +196,42 @@ router.post("/", async (req, res) => {
       .single();
 
     if (error || !lead) {
-      console.error("Supabase insert error:", error);
+      console.error("Supabase insert failed:", error);
       return res.status(500).json({
         success: false,
         error: "lead_insert_failed",
       });
     }
 
-    /* ---------- telegram notify ---------- */
+    /* ---------- TELEGRAM ALERT (ASYNC) ---------- */
     sendTelegram(
-      `NEW LEAD\n\n` +
+      `🟢 NEW LEAD\n` +
       `Name: ${lead.name || "N/A"}\n` +
       `Email: ${lead.email || "N/A"}\n` +
-      `City: ${lead.city || "N/A"}\n` +
       `Score: ${score}\n` +
       `Tier: ${tier}\n` +
       `Price: $${price}`
     );
 
-    /* ---------- stripe checkout ---------- */
-    const session = await createCheckoutSession({
+    /* ---------- STRIPE CHECKOUT ---------- */
+    const session = await createCheckout({
       lead,
       tier,
       score,
       price,
     });
 
-    /* ---------- update lead ---------- */
+    /* ---------- UPDATE LEAD ---------- */
     await supabase
       .from("leads")
       .update({ stripe_session_id: session.id })
       .eq("id", lead.id);
 
     sendTelegram(
-      `CHECKOUT CREATED\n\n` +
-      `Lead: ${lead.id}\n` +
-      `Tier: ${tier}\n` +
-      `Amount: $${price}`
+      `💳 CHECKOUT CREATED\nLead: ${lead.id}\nTier: ${tier}`
     );
 
-    /* ---------- response ---------- */
+    /* ---------- RESPONSE ---------- */
     return res.status(201).json({
       success: true,
       lead,
@@ -241,14 +243,14 @@ router.post("/", async (req, res) => {
         tier,
       },
       meta: {
-        processingTimeMs: Date.now() - startTime,
+        processingTimeMs: Date.now() - start,
       },
     });
 
   } catch (err) {
     console.error("LEAD ROUTE ERROR:", err);
 
-    sendTelegram(`SYSTEM ERROR\n\n${err.message || "Unknown error"}`);
+    sendTelegram(`🚨 SYSTEM ERROR\n${err.message || "unknown"}`);
 
     return res.status(500).json({
       success: false,
