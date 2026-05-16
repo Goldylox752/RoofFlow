@@ -5,7 +5,7 @@ const supabase = require("../../lib/supabase");
    GET OR CREATE STRIPE CUSTOMER
    (IDEMPOTENT + PRO SAFE)
 =============================== */
-exports.getOrCreateStripeCustomer = async (user) => {
+async function getOrCreateStripeCustomer(user) {
   const authId = user?.id;
   const email = user?.email;
 
@@ -20,9 +20,9 @@ exports.getOrCreateStripeCustomer = async (user) => {
     .from("users")
     .select("stripe_customer_id")
     .eq("auth_id", authId)
-    .single();
+    .maybeSingle();
 
-  if (error && error.code !== "PGRST116") {
+  if (error) {
     console.error("Supabase fetch error:", error);
     throw new Error("Failed to fetch user");
   }
@@ -37,21 +37,28 @@ exports.getOrCreateStripeCustomer = async (user) => {
   }
 
   /* ===============================
-     3. CREATE STRIPE CUSTOMER (SAFE)
+     3. CREATE STRIPE CUSTOMER
   =============================== */
-  const customer = await stripe.customers.create({
-    email,
-    metadata: {
-      auth_id: authId,
-    },
-  });
+  let customer;
 
-  if (!customer?.id) {
+  try {
+    customer = await stripe.customers.create({
+      email,
+      metadata: {
+        auth_id: authId,
+      },
+    });
+  } catch (err) {
+    console.error("Stripe customer creation error:", err);
     throw new Error("Stripe customer creation failed");
   }
 
+  if (!customer?.id) {
+    throw new Error("Stripe returned invalid customer response");
+  }
+
   /* ===============================
-     4. UPDATE DATABASE (ATOMIC STYLE)
+     4. UPDATE DATABASE
   =============================== */
   const { error: updateError } = await supabase
     .from("users")
@@ -68,4 +75,11 @@ exports.getOrCreateStripeCustomer = async (user) => {
   }
 
   return customer.id;
+}
+
+/* ===============================
+   EXPORT
+=============================== */
+module.exports = {
+  getOrCreateStripeCustomer,
 };
