@@ -11,7 +11,7 @@ async function getStripeCustomer(authId) {
     .from("users")
     .select("stripe_customer_id")
     .eq("auth_id", authId)
-    .single();
+    .maybeSingle();
 
   if (error) {
     console.error("Supabase error (getStripeCustomer):", error);
@@ -29,30 +29,35 @@ async function getStripeCustomer(authId) {
    GET ACTIVE SUBSCRIPTION
 =============================== */
 async function getActiveSubscription(customerId) {
-  const subs = await stripe.subscriptions.list({
-    customer: customerId,
-    status: "active",
-    limit: 1,
-  });
+  try {
+    const subs = await stripe.subscriptions.list({
+      customer: customerId,
+      status: "active",
+      limit: 1,
+    });
 
-  return subs?.data?.[0] || null;
+    return subs?.data?.[0] || null;
+  } catch (err) {
+    console.error("Stripe list subscription error:", err);
+    throw new Error("Failed to fetch Stripe subscription");
+  }
 }
 
 /* ===============================
-   CANCEL SUBSCRIPTION (SAFE FLOW)
+   CANCEL SUBSCRIPTION
 =============================== */
-exports.cancelSubscription = async (authId) => {
+async function cancelSubscription(authId) {
   if (!authId) {
     throw new Error("authId is required");
   }
 
   /* ===============================
-     1. GET CUSTOMER
+     1. CUSTOMER
   =============================== */
   const customerId = await getStripeCustomer(authId);
 
   /* ===============================
-     2. GET ACTIVE SUBSCRIPTION
+     2. ACTIVE SUB
   =============================== */
   const subscription = await getActiveSubscription(customerId);
 
@@ -65,7 +70,7 @@ exports.cancelSubscription = async (authId) => {
   }
 
   /* ===============================
-     3. CANCEL SAFELY (END OF PERIOD)
+     3. CANCEL STRIPE
   =============================== */
   let canceled;
   try {
@@ -78,11 +83,11 @@ exports.cancelSubscription = async (authId) => {
   }
 
   if (!canceled?.id) {
-    throw new Error("Stripe did not return a valid response");
+    throw new Error("Invalid Stripe response during cancellation");
   }
 
   /* ===============================
-     4. SYNC SUPABASE STATE
+     4. UPDATE SUPABASE
   =============================== */
   const { error } = await supabase
     .from("users")
@@ -96,11 +101,11 @@ exports.cancelSubscription = async (authId) => {
 
   if (error) {
     console.error("Supabase update error:", error);
-    throw new Error("Failed to update user subscription in database");
+    throw new Error("Failed to update subscription state in database");
   }
 
   /* ===============================
-     5. RESPONSE
+     5. RETURN
   =============================== */
   return {
     success: true,
@@ -108,4 +113,11 @@ exports.cancelSubscription = async (authId) => {
     subscriptionId: subscription.id,
     message: "Subscription will cancel at end of billing period",
   };
+}
+
+/* ===============================
+   EXPORT
+=============================== */
+module.exports = {
+  cancelSubscription,
 };
