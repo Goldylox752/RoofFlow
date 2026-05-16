@@ -49,9 +49,6 @@ export default function HomePage() {
     []
   );
 
-  /* ===============================
-     CHECKOUT
-  =============================== */
   const goToCheckout = useCallback(async (plan: string) => {
     try {
       setLoadingPlan(plan);
@@ -63,7 +60,6 @@ export default function HomePage() {
       });
 
       const data = await res.json();
-
       if (data?.url) window.location.href = data.url;
     } catch (err) {
       console.error("Checkout error:", err);
@@ -75,19 +71,12 @@ export default function HomePage() {
   return (
     <main className="min-h-screen bg-black text-white">
       <Navbar />
-
       <Hero onCheckout={goToCheckout} loadingPlan={loadingPlan} />
-
-      <SocialProof />
-
-      <ProductValue />
-
+      <ProofBar />
+      <ValueSection />
       <Analytics revenueData={revenueData} leadData={leadData} />
-
       <Pricing onCheckout={goToCheckout} loadingPlan={loadingPlan} />
-
-      <FinalCTA onCheckout={goToCheckout} />
-
+      <CTA onCheckout={goToCheckout} />
       <Footer />
     </main>
   );
@@ -98,25 +87,25 @@ export default function HomePage() {
 =============================== */
 function Navbar() {
   return (
-    <div className="sticky top-0 z-50 border-b border-white/10 bg-black/60 backdrop-blur">
+    <header className="sticky top-0 z-50 border-b border-white/10 bg-black/70 backdrop-blur">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-5">
         <div className="font-semibold">NorthSky</div>
 
-        <div className="flex gap-6 text-sm text-zinc-400">
+        <nav className="flex gap-6 text-sm text-zinc-400">
           <a href="#pricing" className="hover:text-white">
             Pricing
           </a>
           <a href={SUPPORT_LINK} className="hover:text-white">
             Support
           </a>
-        </div>
+        </nav>
       </div>
-    </div>
+    </header>
   );
 }
 
 /* ===============================
-   HERO (CLEAR VALUE PROP)
+   HERO
 =============================== */
 function Hero({
   onCheckout,
@@ -126,19 +115,20 @@ function Hero({
   loadingPlan: string | null;
 }) {
   return (
-    <section className="mx-auto max-w-7xl px-6 py-28 grid md:grid-cols-2 gap-16">
+    <section className="mx-auto grid max-w-7xl grid-cols-1 gap-16 px-6 py-28 md:grid-cols-2">
       <div>
         <h1 className="text-6xl font-semibold leading-tight">
-          AI system that converts leads into revenue automatically
+          Automate lead conversion with AI-driven workflows
         </h1>
 
         <p className="mt-6 text-zinc-400">
-          Capture leads, score intent, and automate follow-ups using AI + Stripe billing + CRM workflows.
+          Capture, qualify, and convert leads using automated AI decisions,
+          Stripe billing, and CRM workflow automation.
         </p>
 
         <div className="mt-10 flex gap-4">
           <Button onClick={() => onCheckout("growth")}>
-            Start Free Trial
+            Start Trial
           </Button>
 
           <a href="#pricing" className="text-sm text-zinc-400 underline">
@@ -147,55 +137,43 @@ function Hero({
         </div>
       </div>
 
-      <Card className="bg-white/5 border border-white/10 p-6">
-        <div className="space-y-2">
-          <Metric label="Monthly Revenue" value="$48,220" />
-          <Metric label="Active Leads" value="1,248" />
-          <Metric label="Conversion Rate" value="24.8%" />
-        </div>
+      <Card className="border border-white/10 bg-white/5 p-6">
+        <Metric label="MRR" value="$48,220" />
+        <Metric label="Active Leads" value="1,248" />
+        <Metric label="Conversion Rate" value="24.8%" />
       </Card>
     </section>
   );
 }
 
 /* ===============================
-   SOCIAL PROOF
+   PROOF BAR
 =============================== */
-function SocialProof() {
+function ProofBar() {
   return (
-    <div className="border-y border-white/10 bg-white/5">
-      <div className="mx-auto max-w-7xl px-6 py-14 grid grid-cols-3 text-center">
-        <div>
-          <div className="text-3xl font-semibold">$1.2M+</div>
-          <div className="text-sm text-zinc-400">Revenue Generated</div>
-        </div>
-
-        <div>
-          <div className="text-3xl font-semibold">12,000+</div>
-          <div className="text-sm text-zinc-400">Leads Processed</div>
-        </div>
-
-        <div>
-          <div className="text-3xl font-semibold">24/7</div>
-          <div className="text-sm text-zinc-400">AI Automation</div>
-        </div>
+    <section className="border-y border-white/10 bg-white/5">
+      <div className="mx-auto grid max-w-7xl grid-cols-3 px-6 py-14 text-center">
+        <Stat label="Revenue Generated" value="$1.2M+" />
+        <Stat label="Leads Processed" value="12,000+" />
+        <Stat label="Automation Uptime" value="24/7" />
       </div>
-    </div>
+    </section>
   );
 }
 
 /* ===============================
-   PRODUCT VALUE SECTION
+   VALUE SECTION
 =============================== */
-function ProductValue() {
+function ValueSection() {
   return (
     <section className="mx-auto max-w-7xl px-6 py-28">
       <h2 className="text-4xl font-semibold">
-        Replace manual sales workflows with AI automation
+        Replace manual sales workflows with automated AI systems
       </h2>
 
       <p className="mt-4 text-zinc-400">
-        NorthSky continuously analyzes leads, prioritizes high-value prospects, and triggers automated conversion workflows.
+        NorthSky continuously analyzes leads, prioritizes high-value prospects,
+        and triggers conversion workflows automatically.
       </p>
     </section>
   );
@@ -213,9 +191,9 @@ function Analytics({
 }) {
   return (
     <section className="mx-auto max-w-7xl px-6 py-28">
-      <h2 className="text-4xl font-semibold">Live Performance</h2>
+      <h2 className="text-4xl font-semibold">Performance Overview</h2>
 
-      <div className="mt-10 grid md:grid-cols-2 gap-6">
+      <div className="mt-10 grid gap-6 md:grid-cols-2">
         <ChartCard title="Revenue Growth">
           <Chart type="area" dataKey="revenue" data={revenueData} />
         </ChartCard>
@@ -225,14 +203,13 @@ function Analytics({
         </ChartCard>
       </div>
 
-      <div className="mt-6">
-        <Card className="bg-white/5 border border-white/10 p-6">
-          <h3 className="text-sm text-zinc-400">AI Insight</h3>
-          <p className="mt-2">
-            Growth-tier users convert significantly higher. Recommend prioritizing upsell prompts at 48-hour usage mark.
-          </p>
-        </Card>
-      </div>
+      <Card className="mt-6 border border-white/10 bg-white/5 p-6">
+        <h3 className="text-sm text-zinc-400">System Insight</h3>
+        <p className="mt-2 text-sm">
+          Growth-tier users show higher conversion rates. Recommendation:
+          optimize upsell timing within 48 hours of activation.
+        </p>
+      </Card>
     </section>
   );
 }
@@ -247,31 +224,25 @@ function Pricing({
   onCheckout: (plan: string) => void;
   loadingPlan: string | null;
 }) {
-  const plans = [
-    { id: "starter", highlight: false },
-    { id: "growth", highlight: true },
-    { id: "elite", highlight: false },
-  ];
+  const plans = ["starter", "growth", "elite"];
 
   return (
     <section id="pricing" className="mx-auto max-w-7xl px-6 py-28">
       <h2 className="text-4xl font-semibold">Pricing</h2>
 
-      <div className="mt-10 grid md:grid-cols-3 gap-6">
-        {plans.map((p) => (
+      <div className="mt-10 grid gap-6 md:grid-cols-3">
+        {plans.map((plan) => (
           <Card
-            key={p.id}
-            className={`p-6 border ${
-              p.highlight ? "border-indigo-500" : "border-white/10"
-            } bg-white/5`}
+            key={plan}
+            className="border border-white/10 bg-white/5 p-6"
           >
-            <h3 className="capitalize text-xl">{p.id}</h3>
+            <h3 className="capitalize text-xl">{plan}</h3>
 
             <Button
               className="mt-6 w-full"
-              onClick={() => onCheckout(p.id)}
+              onClick={() => onCheckout(plan)}
             >
-              {loadingPlan === p.id ? "Loading..." : "Get Started"}
+              {loadingPlan === plan ? "Loading..." : "Get Started"}
             </Button>
           </Card>
         ))}
@@ -281,9 +252,9 @@ function Pricing({
 }
 
 /* ===============================
-   FINAL CTA
+   CTA
 =============================== */
-function FinalCTA({
+function CTA({
   onCheckout,
 }: {
   onCheckout: (plan: string) => void;
@@ -291,7 +262,7 @@ function FinalCTA({
   return (
     <section className="py-28 text-center">
       <h2 className="text-5xl font-semibold">
-        Start automating your revenue today
+        Start automating revenue today
       </h2>
 
       <Button className="mt-8" onClick={() => onCheckout("growth")}>
@@ -313,13 +284,22 @@ function Footer() {
 }
 
 /* ===============================
-   UI HELPERS
+   UI COMPONENTS
 =============================== */
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex justify-between text-sm">
+    <div className="flex justify-between text-sm py-1">
       <span className="text-zinc-400">{label}</span>
       <span>{value}</span>
+    </div>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="text-3xl font-semibold">{value}</div>
+      <div className="text-sm text-zinc-400">{label}</div>
     </div>
   );
 }
@@ -332,7 +312,7 @@ function ChartCard({
   children: React.ReactNode;
 }) {
   return (
-    <Card className="bg-white/5 border border-white/10 p-6">
+    <Card className="border border-white/10 bg-white/5 p-6">
       <h3>{title}</h3>
       <div className="h-[240px] mt-4">{children}</div>
     </Card>
