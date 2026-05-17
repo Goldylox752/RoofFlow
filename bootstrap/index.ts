@@ -7,55 +7,106 @@ import { bootstrapTelegram } from "./telegram.bootstrap";
 import { bootstrapExpress } from "./express.bootstrap";
 import { bootstrapCron } from "./cron.bootstrap";
 
-async function safe(name: string, fn: () => Promise<any>) {
-  try {
-    await fn();
-    console.log(`[bootstrap] ${name} ready`);
-  } catch (err) {
-    console.error(`[bootstrap] ${name} failed`, err);
+/* ===============================
+   SYSTEM STATE REGISTRY
+=============================== */
+const systemState: Record<string, any> = {};
+
+/* ===============================
+   RETRY ENGINE
+=============================== */
+async function withRetry(
+  name: string,
+  fn: () => Promise<any>,
+  retries = 3,
+  critical = false
+) {
+  for (let i = 1; i <= retries; i++) {
+    try {
+      await fn();
+      systemState[name] = { status: "ready", attempts: i };
+      console.log(`[bootstrap] ${name} ready (attempt ${i})`);
+      return;
+    } catch (err) {
+      console.error(`[bootstrap] ${name} failed attempt ${i}`, err);
+
+      if (i === retries) {
+        systemState[name] = { status: "failed", error: err };
+
+        if (critical) {
+          throw new Error(`[bootstrap] CRITICAL SERVICE FAILED: ${name}`);
+        }
+      }
+    }
   }
 }
 
+/* ===============================
+   READINESS GATE
+=============================== */
+function assertReady(required: string[]) {
+  const missing = required.filter(
+    (k) => systemState[k]?.status !== "ready"
+  );
+
+  if (missing.length > 0) {
+    throw new Error(
+      `[bootstrap] system not ready. Missing: ${missing.join(", ")}`
+    );
+  }
+}
+
+/* ===============================
+   BOOTSTRAP CORE
+=============================== */
 export async function bootstrapApp(app: any) {
-  console.log("[bootstrap] system starting");
+  console.log("[bootstrap] HARD MODE STARTING");
 
   /* ===============================
-     1. CORE FOUNDATION (BLOCKING)
+     1. FOUNDATION (CRITICAL)
   =============================== */
-  await safe("queue", bootstrapQueue);
+  await withRetry("queue", bootstrapQueue, 5, true);
 
   /* ===============================
-     2. CORE ENGINE (PARALLEL)
-  =============================== */
-  await Promise.all([
-    safe("metering", bootstrapMetering),
-    safe("call-center", bootstrapCallCenter),
-  ]);
-
-  /* ===============================
-     3. EVENT LAYER
-  =============================== */
-  await safe("events", bootstrapEvents);
-
-  /* ===============================
-     4. EXTERNAL INTEGRATIONS (PARALLEL)
+     2. CORE ENGINE (CRITICAL)
   =============================== */
   await Promise.all([
-    safe("stripe", bootstrapStripe),
-    safe("telegram", bootstrapTelegram),
+    withRetry("metering", bootstrapMetering, 3, true),
+    withRetry("call-center", bootstrapCallCenter, 3, true),
   ]);
 
+  assertReady(["queue", "metering", "call-center"]);
+
   /* ===============================
-     5. EXPRESS API LAYER
+     3. EVENT LAYER (IMPORTANT)
   =============================== */
-  await safe("express", async () => {
-    await bootstrapExpress(app);
-  });
+  await withRetry("events", bootstrapEvents, 3, false);
+
+  /* ===============================
+     4. EXTERNAL SYSTEMS (IMPORTANT)
+  =============================== */
+  await Promise.all([
+    withRetry("stripe", bootstrapStripe, 3, true),
+    withRetry("telegram", bootstrapTelegram, 3, false),
+  ]);
+
+  assertReady(["stripe"]);
+
+  /* ===============================
+     5. API LAYER (DEPENDENT ON CORE)
+  =============================== */
+  await withRetry("express", () => bootstrapExpress(app), 2, true);
 
   /* ===============================
      6. BACKGROUND SYSTEMS
   =============================== */
-  await safe("cron", bootstrapCron);
+  await withRetry("cron", bootstrapCron, 2, false);
 
-  console.log("[bootstrap] system initialized");
+  /* ===============================
+     FINAL READINESS CHECK
+  =============================== */
+  assertReady(["queue", "metering", "call-center", "stripe", "express"]);
+
+  console.log("[bootstrap] SYSTEM FULLY OPERATIONAL");
+  console.log(systemState);
 }
