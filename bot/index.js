@@ -1,17 +1,38 @@
-require("dotenv").config();
-const TelegramBot = require("node-telegram-bot-api");
-
-const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, {
-  polling: true,
-});
+const bot = require("./client");
+const { dispatchLead } = require("../../call-center/dispatch");
 
 /* ===============================
-   LOAD COMMAND MODULES
+   BOOTSTRAP TELEGRAM SYSTEM
 =============================== */
-require("./commands/admin.commands")(bot);
-require("./commands/user.commands")(bot);
-require("./commands/stripe.commands")(bot);
+function bootstrapTelegram() {
+  console.log("[telegram] booting");
 
-bot.on("polling_error", console.error);
+  // MAIN ENTRY POINT → CALL CENTER
+  bot.on("message", async (msg) => {
+    try {
+      const lead = {
+        source: "telegram",
+        chatId: msg.chat.id,
+        text: msg.text,
+        user: msg.from,
+        created_at: new Date(),
+      };
 
-module.exports = bot;
+      const result = await dispatchLead(lead);
+
+      if (result?.success) {
+        bot.sendMessage(msg.chat.id, "Processed successfully");
+      } else {
+        bot.sendMessage(msg.chat.id, "Could not process request");
+      }
+
+    } catch (err) {
+      console.error("[telegram] handler error", err);
+      bot.sendMessage(msg.chat.id, "System error");
+    }
+  });
+
+  console.log("[telegram] ready");
+}
+
+module.exports = bootstrapTelegram;
