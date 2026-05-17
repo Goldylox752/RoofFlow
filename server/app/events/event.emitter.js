@@ -1,23 +1,30 @@
-const { createEvent } = require("../contracts/event.contract");
+const { createClient } = require("@supabase/supabase-js");
 
-const events = [];
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
 
-async function emitEvent({ type, lead, decision, metadata }) {
-  const event = createEvent({
-    type,
-    lead,
-    decision,
-    metadata,
-  });
+async function saveEvent(event) {
+  const { data, error } = await supabase
+    .from("events")
+    .insert({
+      id: event.id,
+      type: event.type,
+      lead: event.lead,
+      decision: event.decision,
+      metadata: event.metadata,
+      created_at: event.timestamp,
+    });
 
-  // store (DB later, memory now)
-  events.push(event);
+  if (error) {
+    console.error("[event-store] failed", error.message);
+    throw error;
+  }
 
-  console.log("[event]", event.type);
-
-  return event;
+  return data;
 }
 
 module.exports = {
-  emitEvent,
+  saveEvent,
 };
