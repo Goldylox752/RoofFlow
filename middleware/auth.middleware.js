@@ -5,26 +5,31 @@ const PUBLIC_ROUTES = [
   "/stripe-webhook",
 ];
 
+/**
+ * AUTH MIDDLEWARE (SAFE VERSION)
+ */
 module.exports = async function auth(req, res, next) {
   try {
     const rawPath = (req.originalUrl || req.url || "").split("?")[0];
     const normalizedPath = rawPath.replace(/\/$/, "");
 
-    // ---------------------------
-    // PUBLIC ROUTES (NO AUTH)
-    // ---------------------------
-    const isPublic = PUBLIC_ROUTES.some((route) => {
-      const normalizedRoute = route.replace(/\/$/, "");
-      return normalizedPath === normalizedRoute;
-    });
+    // --------------------------------------------------
+    // 1. FORCE PUBLIC ROUTES FIRST (HARD GUARANTEE)
+    // --------------------------------------------------
+    const isTelegramWebhook = normalizedPath.startsWith("/api/telegram/webhook");
+    const isStripeWebhook = normalizedPath.startsWith("/stripe-webhook");
 
-    if (isPublic || normalizedPath.includes("/api/telegram/webhook")) {
+    if (isTelegramWebhook || isStripeWebhook) {
       return next();
     }
 
-    // ---------------------------
-    // AUTH REQUIRED
-    // ---------------------------
+    if (PUBLIC_ROUTES.includes(normalizedPath)) {
+      return next();
+    }
+
+    // --------------------------------------------------
+    // 2. REQUIRE AUTH FOR EVERYTHING ELSE
+    // --------------------------------------------------
     const header = req.headers.authorization;
 
     if (!header?.startsWith("Bearer ")) {
@@ -41,12 +46,12 @@ module.exports = async function auth(req, res, next) {
       return res.status(401).json({ error: "invalid_session" });
     }
 
-    // ---------------------------
-    // ATTACH USER
-    // ---------------------------
+    // --------------------------------------------------
+    // 3. ATTACH USER
+    // --------------------------------------------------
     req.user = {
       id: payload.sub,
-      email: payload.email || null,
+      email: payload.email || payload.email_address || null,
       role: payload.public_metadata?.role || "user",
       plan: payload.public_metadata?.plan || "starter",
     };
@@ -54,6 +59,15 @@ module.exports = async function auth(req, res, next) {
     return next();
 
   } catch (err) {
+    console.error("[AUTH ERROR]", err.message);
+
+    // IMPORTANT: never leak auth failure into webhook routes
+    const rawPath = (req.originalUrl || req.url || "").split("?")[0];
+
+    if (rawPath.includes("/api/telegram/webhook")) {
+      return res.sendStatus(200); // prevent Telegram retries
+    }
+
     return res.status(401).json({ error: "unauthorized" });
   }
 };
