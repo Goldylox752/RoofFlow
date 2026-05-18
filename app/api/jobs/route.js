@@ -1,48 +1,46 @@
-import { supabase } from "@/lib/supabase";
+import { supabaseServer } from "@/lib/supabaseServer";
 
 export const runtime = "nodejs";
 
 // ===============================
 // 🧼 VALIDATION
 // ===============================
-function validateJobInput({ lead_id, assigned_to }) {
+function validateJobInput(body: any) {
+  const { lead_id, assigned_to } = body;
+
   if (!lead_id || !assigned_to) {
     return "Missing lead_id or assigned_to";
   }
+
   return null;
 }
 
 // ===============================
 // 🔐 IDEMPOTENCY KEY
-// prevents duplicate job creation per lead
 // ===============================
-function buildJobKey(lead_id, assigned_to) {
+function buildJobKey(lead_id: string, assigned_to: string) {
   return `job:${lead_id}:${assigned_to}`;
 }
 
 // ===============================
-// CREATE JOB (HARDENED)
+// POST - CREATE JOB
 // ===============================
-export async function POST(req) {
+export async function POST(req: Request) {
   try {
     const body = await req.json();
 
     const { lead_id, assigned_to, status = "pending" } = body;
 
-    // ===============================
-    // VALIDATION
-    // ===============================
+    // Validate
     const errorMsg = validateJobInput(body);
     if (errorMsg) {
       return Response.json({ error: errorMsg }, { status: 400 });
     }
 
-    // ===============================
-    // IDEMPOTENCY CHECK
-    // ===============================
     const jobKey = buildJobKey(lead_id, assigned_to);
 
-    const { data: existing } = await supabase
+    // Check existing job (idempotency)
+    const { data: existing } = await supabaseServer
       .from("jobs")
       .select("id, lead_id, assigned_to, status")
       .eq("idempotency_key", jobKey)
@@ -56,36 +54,28 @@ export async function POST(req) {
       });
     }
 
-    // ===============================
-    // INSERT JOB
-    // ===============================
-    const { data, error } = await supabase
+    // Create job
+    const { data, error } = await supabaseServer
       .from("jobs")
-      .insert([
-        {
-          lead_id,
-          assigned_to,
-          status,
-          idempotency_key: jobKey,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        },
-      ])
+      .insert({
+        lead_id,
+        assigned_to,
+        status,
+        idempotency_key: jobKey,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
       .select()
       .single();
 
     if (error) {
-      return Response.json(
-        { error: error.message },
-        { status: 500 }
-      );
+      return Response.json({ error: error.message }, { status: 500 });
     }
 
     return Response.json({
       success: true,
       job: data,
     });
-
   } catch (err) {
     console.error("Job create error:", err);
 
@@ -97,22 +87,17 @@ export async function POST(req) {
 }
 
 // ===============================
-// GET JOBS (PAGINATED + SAFE)
+// GET - LIST JOBS
 // ===============================
-export async function GET(req) {
+export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
 
-    const limit = Math.min(
-      parseInt(searchParams.get("limit") || "50"),
-      100
-    );
-
+    const limit = Math.min(parseInt(searchParams.get("limit") || "50"), 100);
     const offset = parseInt(searchParams.get("offset") || "0");
-
     const status = searchParams.get("status");
 
-    let query = supabase
+    let query = supabaseServer
       .from("jobs")
       .select("*")
       .order("created_at", { ascending: false })
@@ -125,10 +110,7 @@ export async function GET(req) {
     const { data, error } = await query;
 
     if (error) {
-      return Response.json(
-        { error: error.message },
-        { status: 500 }
-      );
+      return Response.json({ error: error.message }, { status: 500 });
     }
 
     return Response.json({
@@ -139,7 +121,6 @@ export async function GET(req) {
         offset,
       },
     });
-
   } catch (err) {
     console.error("Job fetch error:", err);
 
