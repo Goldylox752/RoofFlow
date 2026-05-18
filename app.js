@@ -1,35 +1,64 @@
 require("dotenv").config();
-
+const express = require("express");
 const http = require("http");
-const app = require("./server"); // <-- THIS is your Express app file you pasted
+
+const auth = require("./middleware/auth");
+const telegramHandler = require("./routes/telegram.webhook"); // adjust path if needed
+
+const app = express();
 
 /* ===============================
-   ENV CHECK
+   GLOBAL MIDDLEWARE
 =============================== */
-if (!process.env.PORT) {
-  console.warn("⚠️ Missing PORT (Render will inject one automatically)");
-}
+app.use(express.json());
 
 /* ===============================
-   CREATE HTTP SERVER
+   HEALTH CHECK (PUBLIC)
 =============================== */
-const server = http.createServer(app);
+app.get("/health", (req, res) => {
+  res.status(200).json({ ok: true });
+});
+
+/* ===============================
+   TELEGRAM WEBHOOK (PUBLIC - NO AUTH)
+   MUST BE BEFORE AUTH MIDDLEWARE
+=============================== */
+app.post("/api/telegram/webhook", telegramHandler);
+
+/* ===============================
+   AUTH MIDDLEWARE (PROTECT EVERYTHING ELSE)
+=============================== */
+app.use((req, res, next) => {
+  // 🔥 SKIP TELEGRAM WEBHOOK
+  if (req.path.startsWith("/api/telegram/webhook")) {
+    return next();
+  }
+
+  return auth(req, res, next);
+});
+
+/* ===============================
+   PROTECTED ROUTES
+=============================== */
+app.use("/api", require("./routes")); // your normal APIs
 
 /* ===============================
    START SERVER
 =============================== */
+const server = http.createServer(app);
+
 const PORT = process.env.PORT || 3000;
 
 server.listen(PORT, () => {
   console.log("==================================");
   console.log("🚀 SERVER STARTED");
   console.log(`🌐 Port: ${PORT}`);
-  console.log(`🔗 Health: /health`);
+  console.log("🤖 Telegram webhook enabled");
   console.log("==================================");
 });
 
 /* ===============================
-   GRACEFUL ERROR HANDLING
+   ERROR HANDLING
 =============================== */
 process.on("uncaughtException", (err) => {
   console.error("Uncaught Exception:", err);
@@ -38,3 +67,5 @@ process.on("uncaughtException", (err) => {
 process.on("unhandledRejection", (err) => {
   console.error("Unhandled Rejection:", err);
 });
+
+module.exports = app;
