@@ -6,25 +6,31 @@ const PUBLIC_ROUTES = [
 ];
 
 module.exports = async function auth(req, res, next) {
-  const path = (req.originalUrl || req.url || "").split("?")[0];
-
-  // ---------------------------
-  // PUBLIC ROUTES (NO AUTH)
-  // ---------------------------
-  if (PUBLIC_ROUTES.some(r => path === r || path.startsWith(r))) {
-    return next();
-  }
-
-  // ---------------------------
-  // AUTH REQUIRED
-  // ---------------------------
-  const header = req.headers.authorization;
-
-  if (!header?.startsWith("Bearer ")) {
-    return res.status(401).json({ error: "missing_auth" });
-  }
-
   try {
+    const rawPath = (req.originalUrl || req.url || "").split("?")[0];
+    const normalizedPath = rawPath.replace(/\/$/, "");
+
+    // ---------------------------
+    // PUBLIC ROUTES (NO AUTH)
+    // ---------------------------
+    const isPublic = PUBLIC_ROUTES.some((route) => {
+      const normalizedRoute = route.replace(/\/$/, "");
+      return normalizedPath === normalizedRoute;
+    });
+
+    if (isPublic || normalizedPath.includes("/api/telegram/webhook")) {
+      return next();
+    }
+
+    // ---------------------------
+    // AUTH REQUIRED
+    // ---------------------------
+    const header = req.headers.authorization;
+
+    if (!header?.startsWith("Bearer ")) {
+      return res.status(401).json({ error: "missing_auth" });
+    }
+
     const token = header.split(" ")[1];
 
     const payload = await verifyToken(token, {
@@ -35,13 +41,18 @@ module.exports = async function auth(req, res, next) {
       return res.status(401).json({ error: "invalid_session" });
     }
 
+    // ---------------------------
+    // ATTACH USER
+    // ---------------------------
     req.user = {
       id: payload.sub,
       email: payload.email || null,
       role: payload.public_metadata?.role || "user",
+      plan: payload.public_metadata?.plan || "starter",
     };
 
-    next();
+    return next();
+
   } catch (err) {
     return res.status(401).json({ error: "unauthorized" });
   }
