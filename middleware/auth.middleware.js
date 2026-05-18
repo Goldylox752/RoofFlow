@@ -1,31 +1,30 @@
 const { verifyToken } = require("@clerk/backend");
-const logger = require("../lib/logger");
 
 const PUBLIC_ROUTES = [
   "/api/telegram/webhook",
+  "/stripe-webhook",
 ];
 
-const auth = async (req, res, next) => {
+module.exports = async function auth(req, res, next) {
+  const path = (req.originalUrl || req.url || "").split("?")[0];
+
+  // ---------------------------
+  // PUBLIC ROUTES (NO AUTH)
+  // ---------------------------
+  if (PUBLIC_ROUTES.some(r => path === r || path.startsWith(r))) {
+    return next();
+  }
+
+  // ---------------------------
+  // AUTH REQUIRED
+  // ---------------------------
+  const header = req.headers.authorization;
+
+  if (!header?.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "missing_auth" });
+  }
+
   try {
-    const path = (req.originalUrl || req.url || "").split("?")[0];
-
-    const isPublic = PUBLIC_ROUTES.some(
-      (route) => path === route || path.startsWith(route)
-    );
-
-    if (isPublic) {
-      return next();
-    }
-
-    const header = req.headers.authorization;
-
-    if (!header?.startsWith("Bearer ")) {
-      return res.status(401).json({
-        success: false,
-        error: "missing_authorization_header",
-      });
-    }
-
     const token = header.split(" ")[1];
 
     const payload = await verifyToken(token, {
@@ -33,35 +32,17 @@ const auth = async (req, res, next) => {
     });
 
     if (!payload?.sub) {
-      return res.status(401).json({
-        success: false,
-        error: "invalid_session",
-      });
+      return res.status(401).json({ error: "invalid_session" });
     }
 
     req.user = {
       id: payload.sub,
-      email: payload.email || payload.email_address || null,
+      email: payload.email || null,
       role: payload.public_metadata?.role || "user",
-      plan: payload.public_metadata?.plan || "starter",
     };
 
     next();
   } catch (err) {
-    logger.warn(
-      {
-        error: err.message,
-        path: req.path,
-        ip: req.ip,
-      },
-      "auth_failed"
-    );
-
-    return res.status(401).json({
-      success: false,
-      error: "unauthorized",
-    });
+    return res.status(401).json({ error: "unauthorized" });
   }
 };
-
-module.exports = auth;
