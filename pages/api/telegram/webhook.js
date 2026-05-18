@@ -5,8 +5,9 @@ export const config = {
 };
 
 export default async function handler(req, res) {
+  // Telegram only sends POST requests
   if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed" });
+    return res.status(200).json({ ok: true });
   }
 
   try {
@@ -14,9 +15,8 @@ export default async function handler(req, res) {
 
     console.log("📩 Telegram webhook received:", update);
 
-    const message = update?.message;
-    const chatId = message?.chat?.id;
-    const text = message?.text;
+    const chatId = update?.message?.chat?.id;
+    const text = update?.message?.text;
 
     if (!chatId) {
       return res.status(200).json({ ok: true });
@@ -30,18 +30,23 @@ export default async function handler(req, res) {
       reply = `You said: ${text}`;
     }
 
-    await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text: reply,
-      }),
-    });
+    await fetch(
+      `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text: reply,
+        }),
+      }
+    );
 
     return res.status(200).json({ ok: true });
-  } catch (err) {
-    console.error("Webhook error:", err);
-    return res.status(500).json({ ok: true });
+  } catch (error) {
+    console.error("Webhook error:", error);
+    return res.status(200).json({ ok: true });
   }
 }
