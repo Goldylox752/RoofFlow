@@ -15,7 +15,7 @@ const sms = twilio(
 );
 
 // --------------------
-// TEMP MEMORY (replace with DB later)
+// MEMORY (TEMP - replace with DB ASAP)
 // --------------------
 const leads = global.leads || new Map();
 global.leads = leads;
@@ -28,10 +28,10 @@ async function generateFollowUp(lead, stage) {
     "First follow-up: friendly check-in about roofing quote",
     "Second follow-up: polite reminder, offer estimate help",
     "Third follow-up: urgency message (storm/leak awareness)",
-    "Final follow-up: last message, polite close"
+    "Final follow-up: last message, polite close",
   ];
 
-  const res = await openai.chat.completions.create({
+  const response = await openai.chat.completions.create({
     model: "gpt-4o-mini",
     messages: [
       {
@@ -49,22 +49,24 @@ Rules:
 - Focus on roofing repair/replacement/storm damage
 
 Lead:
-Name: ${lead.name}
-Location: ${lead.location}
-Job: ${lead.jobType}
+Name: ${lead?.name || "Unknown"}
+Location: ${lead?.location || "Unknown"}
+Job: ${lead?.jobType || "Unknown"}
         `,
       },
     ],
     temperature: 0.7,
   });
 
-  return res.choices[0].message.content;
+  return response.choices[0]?.message?.content || "Follow-up message.";
 }
 
 // --------------------
 // SEND SMS
 // --------------------
 async function sendSMS(to, body) {
+  if (!to) return;
+
   return sms.messages.create({
     from: process.env.TWILIO_PHONE,
     to,
@@ -73,7 +75,7 @@ async function sendSMS(to, body) {
 }
 
 // --------------------
-// FOLLOW-UP RUNNER
+// FOLLOW-UP ENGINE
 // --------------------
 export async function GET() {
   try {
@@ -83,30 +85,35 @@ export async function GET() {
     for (const [id, lead] of leads.entries()) {
       if (!lead) continue;
 
-      const last = lead.lastContactAt || lead.createdAt;
-      const hoursSince = (now - new Date(last).getTime()) / (1000 * 60 * 60);
+      const last = lead.lastContactAt || lead.createdAt || new Date();
+      const hoursSince =
+        (now - new Date(last).getTime()) / (1000 * 60 * 60);
 
-      // Skip if closed or max stage reached
+      // stop conditions
       if (lead.status === "dead" || lead.followUpStage >= 3) continue;
 
       let shouldSend = false;
 
-      // Timing logic
       if (lead.followUpStage === 0 && hoursSince >= 24) shouldSend = true;
       if (lead.followUpStage === 1 && hoursSince >= 72) shouldSend = true;
       if (lead.followUpStage === 2 && hoursSince >= 168) shouldSend = true;
 
       if (!shouldSend) continue;
 
-      // Generate AI message
+      // AI message
       const message = await generateFollowUp(lead, lead.followUpStage);
 
-      // Send SMS
+      // SMS send
       await sendSMS(lead.phone, message);
 
-      // Update lead
-      lead.followUpStage += 1;
+      // update lead safely
+      lead.followUpStage = (lead.followUpStage || 0) + 1;
       lead.lastContactAt = new Date();
+
+      if (!Array.isArray(lead.messages)) {
+        lead.messages = [];
+      }
+
       lead.messages.push({
         type: "followup",
         stage: lead.followUpStage,
@@ -128,9 +135,8 @@ export async function GET() {
       processed: results.length,
       results,
     });
-
   } catch (err) {
-    console.error(err);
+    console.error("Follow-up engine error:", err);
 
     return NextResponse.json(
       { success: false, error: "Follow-up engine failed" },
