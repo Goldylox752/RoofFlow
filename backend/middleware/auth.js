@@ -1,32 +1,22 @@
-// middleware/auth.js
-const { requireAuth } = require("@clerk/express");
-const logger = require("../lib/logger");
+const auth = require("./middleware/auth");
 
-// Clerk middleware (production safe)
-const auth = (req, res, next) => {
-  return requireAuth()(req, res, (err) => {
-    if (err) {
-      logger.warn(
-        {
-          error: err.message,
-          path: req.path,
-        },
-        "Clerk auth failed"
-      );
+const PUBLIC_ROUTES = [
+  "/api/telegram/webhook",
+  "/stripe-webhook",
+];
 
-      return res.status(401).json({
-        success: false,
-        error: "Unauthorized",
-      });
-    }
+app.use((req, res, next) => {
+  const path = req.originalUrl.split("?")[0];
 
-    // Clerk injects auth into req.auth
-    req.user = {
-      id: req.auth.userId,
-    };
+  // ALWAYS allow webhooks FIRST (hard bypass)
+  if (PUBLIC_ROUTES.some(r => path.startsWith(r))) {
+    return next();
+  }
 
-    next();
-  });
-};
+  // protect everything else under /api
+  if (path.startsWith("/api")) {
+    return auth(req, res, next);
+  }
 
-module.exports = auth;
+  next();
+});
