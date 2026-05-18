@@ -1,11 +1,19 @@
 import { createClient } from "@supabase/supabase-js";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-// SERVER ONLY CLIENT (FULL ACCESS)
-export const supabaseServer = createClient(supabaseUrl, serviceRoleKey, {
-  auth: {
-    persistSession: false,
-  },
-});
+if (!supabaseUrl || !serviceRoleKey) {
+  throw new Error("Missing Supabase server env vars");
+}
+
+// SERVER ONLY CLIENT (FULL ACCESS - NEVER EXPOSE TO FRONTEND)
+export const supabaseServer = createClient(
+  supabaseUrl,
+  serviceRoleKey,
+  {
+    auth: {
+      persistSession: false,
+    },
+  }
+);
