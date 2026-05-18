@@ -1,64 +1,39 @@
 require("dotenv").config();
-
 const express = require("express");
 const app = express();
 
-/* ===============================
-   IMPORT BOOTSTRAP
-=============================== */
 const bootstrapApp = require("./app/bootstrap");
 
-/* ===============================
-   MIDDLEWARE (GLOBAL SAFE)
-=============================== */
+// --------------------
+// CORE MIDDLEWARE
+// --------------------
 app.use(express.json({ limit: "1mb" }));
 
-/* ===============================
-   STRIPE RAW BODY
-=============================== */
-app.use("/stripe-webhook", express.raw({ type: "application/json" }));
-
-/* ===============================
-   HEALTH CHECK
-=============================== */
+// --------------------
+// HEALTH
+// --------------------
 app.get("/health", (req, res) => {
-  res.json({
-    ok: true,
-    service: "northsky-flow-os",
-    uptime: process.uptime(),
-    timestamp: new Date().toISOString(),
-  });
+  res.json({ ok: true });
 });
 
-/* ===============================
-   ROOT ROUTE
-=============================== */
-app.get("/", (req, res) => {
-  res.json({
-    ok: true,
-    message: "NorthSky API running",
-  });
-});
+// --------------------
+// PUBLIC WEBHOOKS (NO AUTH)
+// --------------------
 
-/* ===============================
-   TELEGRAM WEBHOOK (PUBLIC - MUST STAY OUTSIDE AUTH SYSTEM)
-=============================== */
+// Telegram
 app.post("/api/telegram/webhook", async (req, res) => {
   try {
     const update = req.body;
 
-    console.log("📩 Telegram webhook received:", update);
-
     const chatId = update?.message?.chat?.id;
     const text = update?.message?.text;
 
-    if (!chatId) {
-      return res.status(200).json({ ok: true });
-    }
+    if (!chatId) return res.status(200).send("ok");
 
-    const reply = text === "/start"
-      ? "👋 Welcome! Your bot is live."
-      : `You said: ${text}`;
+    const reply =
+      text === "/start"
+        ? "👋 Bot is live"
+        : `You said: ${text}`;
 
     await fetch(
       `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`,
@@ -72,32 +47,36 @@ app.post("/api/telegram/webhook", async (req, res) => {
       }
     );
 
-    return res.status(200).json({ ok: true });
+    return res.status(200).send("ok");
   } catch (err) {
-    console.error("Telegram webhook error:", err);
-    return res.status(200).json({ ok: true });
+    console.error(err);
+    return res.status(200).send("ok");
   }
 });
 
-/* ===============================
-   START SYSTEM (BOOTSTRAP AFTER PUBLIC ROUTES)
-=============================== */
-async function start() {
-  try {
-    console.log("Starting server...");
+// Stripe webhook stays raw if needed
+app.use("/stripe-webhook", express.raw({ type: "application/json" }));
 
-    // IMPORTANT: bootstrap runs AFTER public routes are defined
-    await bootstrapApp(app);
+// --------------------
+// PROTECTED ROUTES (AUTH HERE ONLY)
+// --------------------
+const auth = require("./middleware/auth");
 
-    const PORT = process.env.PORT || 3000;
+// Everything under /api (except webhooks) is protected
+app.use("/api", (req, res, next) => {
+  if (req.path.includes("/telegram/webhook")) return next();
+  if (req.path.includes("/stripe-webhook")) return next();
 
-    app.listen(PORT, () => {
-      console.log(`🚀 Server running on port ${PORT}`);
-    });
-  } catch (err) {
-    console.error("BOOTSTRAP FAILED:", err);
-    process.exit(1);
-  }
-}
+  return auth(req, res, next);
+});
 
-start();
+// --------------------
+// BOOTSTRAP SYSTEM (NO ROUTE LOGIC)
+// --------------------
+bootstrapApp(app);
+
+// --------------------
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log("🚀 Server running on", PORT);
+});
