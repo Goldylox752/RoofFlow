@@ -1,28 +1,22 @@
 const { verifyToken } = require("@clerk/backend");
 const logger = require("../lib/logger");
 
-/**
- * Routes that should NEVER require auth
- * (webhooks, bots, external services)
- */
 const PUBLIC_ROUTES = [
   "/api/telegram/webhook",
 ];
 
 const auth = async (req, res, next) => {
   try {
-    const path = req.path || req.url;
+    const path = (req.originalUrl || req.url || "").split("?")[0];
 
-    // --------------------------------------------------
-    // 1. SKIP PUBLIC ROUTES (Telegram, webhooks, etc.)
-    // --------------------------------------------------
-    if (PUBLIC_ROUTES.some((route) => path.includes(route))) {
+    const isPublic = PUBLIC_ROUTES.some(
+      (route) => path === route || path.startsWith(route)
+    );
+
+    if (isPublic) {
       return next();
     }
 
-    // --------------------------------------------------
-    // 2. REQUIRE AUTH HEADER FOR PROTECTED ROUTES
-    // --------------------------------------------------
     const header = req.headers.authorization;
 
     if (!header?.startsWith("Bearer ")) {
@@ -45,9 +39,6 @@ const auth = async (req, res, next) => {
       });
     }
 
-    // --------------------------------------------------
-    // 3. ATTACH USER CONTEXT
-    // --------------------------------------------------
     req.user = {
       id: payload.sub,
       email: payload.email || payload.email_address || null,
