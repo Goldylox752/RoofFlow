@@ -1,29 +1,33 @@
 import { NextResponse } from "next/server";
-import OpenAI from "openai";
-import twilio from "twilio";
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
-
-const sms = twilio(
-  process.env.TWILIO_SID,
-  process.env.TWILIO_AUTH_TOKEN
-);
 
 const leads = globalThis.leads ?? new Map();
 globalThis.leads = leads;
 
-async function sendSMS(to, body) {
-  if (!to) return;
+// --------------------
+// SIMPLE MESSAGE SYSTEM (NO AI)
+// --------------------
+function generateFollowUp(lead, stage) {
+  const messages = [
+    "Hey 👋 just checking in — are you still looking to get your roof looked at?",
+    "Quick follow-up — I can still lock in your estimate if you want.",
+    "Storm season is coming — want me to recheck your roof condition?",
+    "Last check-in — should I close this out or keep it open for you?",
+  ];
 
-  return sms.messages.create({
-    from: process.env.TWILIO_PHONE,
-    to,
-    body,
-  });
+  return messages[stage] || messages[0];
 }
 
+// --------------------
+// SMS DISABLED (SAFE MODE)
+// --------------------
+async function sendSMS(to, body) {
+  console.log("[SMS DISABLED]", { to, body });
+  return true;
+}
+
+// --------------------
+// FOLLOW-UP ENGINE
+// --------------------
 export async function GET() {
   try {
     const now = Date.now();
@@ -40,25 +44,14 @@ export async function GET() {
 
       if (lead.status === "dead" || lead.followUpStage >= 3) continue;
 
-      let shouldSend =
+      const shouldSend =
         (lead.followUpStage === 0 && hoursSince >= 24) ||
         (lead.followUpStage === 1 && hoursSince >= 72) ||
         (lead.followUpStage === 2 && hoursSince >= 168);
 
       if (!shouldSend) continue;
 
-      const response = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: [
-          {
-            role: "user",
-            content: `Write a short roofing follow-up message.`,
-          },
-        ],
-      });
-
-      const message =
-        response.choices[0]?.message?.content || "Follow up";
+      const message = generateFollowUp(lead, lead.followUpStage);
 
       await sendSMS(lead.phone, message);
 
@@ -70,9 +63,13 @@ export async function GET() {
       results.push({ id, sent: true });
     }
 
-    return NextResponse.json({ success: true, results });
+    return NextResponse.json({
+      success: true,
+      results,
+    });
   } catch (err) {
-    console.error(err);
+    console.error("[FOLLOWUP ERROR]", err);
+
     return NextResponse.json(
       { success: false },
       { status: 500 }
