@@ -1,8 +1,28 @@
 const { verifyToken } = require("@clerk/backend");
 const logger = require("../lib/logger");
 
+/**
+ * Routes that should NEVER require auth
+ * (webhooks, bots, external services)
+ */
+const PUBLIC_ROUTES = [
+  "/api/telegram/webhook",
+];
+
 const auth = async (req, res, next) => {
   try {
+    const path = req.path || req.url;
+
+    // --------------------------------------------------
+    // 1. SKIP PUBLIC ROUTES (Telegram, webhooks, etc.)
+    // --------------------------------------------------
+    if (PUBLIC_ROUTES.some((route) => path.includes(route))) {
+      return next();
+    }
+
+    // --------------------------------------------------
+    // 2. REQUIRE AUTH HEADER FOR PROTECTED ROUTES
+    // --------------------------------------------------
     const header = req.headers.authorization;
 
     if (!header?.startsWith("Bearer ")) {
@@ -25,15 +45,12 @@ const auth = async (req, res, next) => {
       });
     }
 
-    // safer email extraction
-    const email =
-      payload.email ||
-      payload.email_address ||
-      null;
-
+    // --------------------------------------------------
+    // 3. ATTACH USER CONTEXT
+    // --------------------------------------------------
     req.user = {
       id: payload.sub,
-      email,
+      email: payload.email || payload.email_address || null,
       role: payload.public_metadata?.role || "user",
       plan: payload.public_metadata?.plan || "starter",
     };
@@ -46,7 +63,7 @@ const auth = async (req, res, next) => {
         path: req.path,
         ip: req.ip,
       },
-      "clerk_auth_failed"
+      "auth_failed"
     );
 
     return res.status(401).json({
