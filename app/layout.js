@@ -1,3 +1,5 @@
+import { ClerkProvider } from "@clerk/nextjs";
+
 export const metadata = {
   title: "NorthSky RoofFlow OS",
   description: "Roofing workflow & operations platform",
@@ -5,24 +7,45 @@ export const metadata = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en">
-      <body>
-        <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
-          
-          <header style={{ padding: "12px 20px", borderBottom: "1px solid #eee" }}>
-            NorthSky RoofFlow
-          </header>
+    <ClerkProvider>
+      <html lang="en">
+        <body style={{ margin: 0, fontFamily: "Arial, sans-serif" }}>
 
-          <main style={{ flex: 1, padding: "20px" }}>
-            {children}
-          </main>
+          <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
 
-          <footer style={{ padding: "12px 20px", borderTop: "1px solid #eee" }}>
-            © {new Date().getFullYear()} NorthSky
-          </footer>
+            <header
+              style={{
+                padding: "12px 20px",
+                borderBottom: "1px solid #eee",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                fontWeight: 600,
+              }}
+            >
+              <span>NorthSky RoofFlow</span>
+            </header>
 
-        </div>
-      </body>
-    </html>
+            <main style={{ flex: 1, padding: "20px" }}>
+              {children}
+            </main>
+
+            <footer
+              style={{
+                padding: "12px 20px",
+                borderTop: "1px solid #eee",
+                textAlign: "center",
+                fontSize: "12px",
+                color: "#666",
+              }}
+            >
+              © {new Date().getFullYear()} NorthSky RoofFlow OS
+            </footer>
+
+          </div>
+
+        </body>
+      </html>
+    </ClerkProvider>
   );
 }
