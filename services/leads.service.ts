@@ -9,18 +9,12 @@ export async function createLead({
   phone,
   city,
   source = "web",
-}: {
-  name?: string;
-  email?: string;
-  phone?: string;
-  city?: string;
-  source?: string;
 }) {
   if (!email && !phone) {
     throw new Error("Email or phone required");
   }
 
-  const normalizedEmail = email?.trim().toLowerCase() || null;
+  const normalizedEmail = email ? email.trim().toLowerCase() : null;
 
   const { data: existing, error: fetchError } = await supabase
     .from("leads")
@@ -30,17 +24,17 @@ export async function createLead({
 
   if (fetchError) throw new Error(fetchError.message);
 
-  if (existing?.id) {
+  if (existing && existing.id) {
     return { id: existing.id, duplicate: true };
   }
 
   const { data, error } = await supabase
     .from("leads")
     .insert({
-      name: name?.trim() || null,
+      name: name ? name.trim() : null,
       email: normalizedEmail,
-      phone: phone?.trim() || null,
-      city: city?.trim() || null,
+      phone: phone ? phone.trim() : null,
+      city: city ? city.trim() : null,
       source,
       status: "new",
       created_at: new Date().toISOString(),
@@ -56,7 +50,7 @@ export async function createLead({
 /* ===============================
    GET SINGLE LEAD
 =============================== */
-export async function getLead(id: string) {
+export async function getLead(id) {
   const { data, error } = await supabase
     .from("leads")
     .select("*")
@@ -70,7 +64,7 @@ export async function getLead(id: string) {
 /* ===============================
    LOCK LEAD
 =============================== */
-export async function lockLead(leadId: string, userId: string) {
+export async function lockLead(leadId, userId) {
   const { data, error } = await supabase
     .from("leads")
     .update({
@@ -91,7 +85,7 @@ export async function lockLead(leadId: string, userId: string) {
 /* ===============================
    SELL LEAD
 =============================== */
-export async function sellLead(leadId: string, userId: string) {
+export async function sellLead(leadId, userId) {
   const { data, error } = await supabase
     .from("leads")
     .update({
