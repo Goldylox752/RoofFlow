@@ -7,7 +7,7 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <body style={styles.body}>
-        <div id="app">{children}</div>
+        <main id="app">{children}</main>
       </body>
     </html>
   );
@@ -16,9 +16,12 @@ export default function RootLayout({ children }) {
 const styles = {
   body: {
     margin: 0,
-    backgroundColor: "#000",
+    minHeight: "100vh",
+    background: "#000",
     color: "#fff",
-    fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
-    lineHeight: 1.5
-  }
+    fontFamily:
+      "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+    lineHeight: 1.5,
+    overflowX: "hidden",
+  },
 };
