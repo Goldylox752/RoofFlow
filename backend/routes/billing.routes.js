@@ -1,9 +1,6 @@
 const router = require("express").Router();
 const auth = require("../../middleware/auth.middleware");
-
-const {
-  createCheckoutSession,
-} = require("../../services/stripe/checkout.service");
+const { createCheckoutSession } = require("../../services/stripe/checkout.service");
 
 /* ===============================
    ALLOWED PLANS
@@ -15,10 +12,10 @@ const ALLOWED_PLANS = ["starter", "growth", "elite"];
 =============================== */
 router.post("/checkout", auth, async (req, res) => {
   try {
-    const plan = req.body.plan || "starter";
+    const { plan = "starter" } = req.body || {};
 
     /* ===============================
-       VALIDATE PLAN
+       VALIDATE PLAN EARLY
     =============================== */
     if (!ALLOWED_PLANS.includes(plan)) {
       return res.status(400).json({
@@ -28,9 +25,11 @@ router.post("/checkout", auth, async (req, res) => {
     }
 
     /* ===============================
-       ENSURE USER EXISTS
+       STRICT USER CHECK
     =============================== */
-    if (!req.user?.id) {
+    const user = req.user;
+
+    if (!user?.id || !user?.email) {
       return res.status(401).json({
         success: false,
         error: "Unauthorized",
@@ -42,23 +41,29 @@ router.post("/checkout", auth, async (req, res) => {
     =============================== */
     const session = await createCheckoutSession({
       user: {
-        id: req.user.id,
-        email: req.user.email,
+        id: user.id,
+        email: user.email,
       },
       plan,
     });
+
+    if (!session?.url) {
+      return res.status(500).json({
+        success: false,
+        error: "Stripe session failed",
+      });
+    }
 
     return res.json({
       success: true,
       url: session.url,
     });
-
   } catch (err) {
-    console.error("Checkout error:", err);
+    console.error("❌ Checkout error:", err);
 
     return res.status(500).json({
       success: false,
-      error: err.message || "checkout_failed",
+      error: "internal_server_error",
     });
   }
 });
