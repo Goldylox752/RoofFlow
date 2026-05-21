@@ -7,18 +7,18 @@ function formatCity(slug = "") {
 }
 
 /* =========================
-   SEO METADATA (SAFE)
+   SEO METADATA
 ========================= */
 export async function generateMetadata({ params }) {
   const city = params?.city ? formatCity(params.city) : "Your City";
 
   return {
-    title: `Exclusive Roofing Leads in ${city} | RoofFlow`,
-    description: `Get exclusive roofing leads in ${city}. RoofFlow connects contractors with high-intent homeowners ready to book estimates.`,
+    title: `Roofing Leads in ${city} | RoofFlow`,
+    description: `Exclusive roofing leads in ${city}. RoofFlow connects contractors with high-intent homeowners ready to book estimates.`,
 
     openGraph: {
       title: `Roofing Leads in ${city}`,
-      description: `Exclusive contractor-only roofing leads in ${city}.`,
+      description: `Exclusive roofing leads for contractors in ${city}.`,
       type: "website",
     },
   };
@@ -41,27 +41,25 @@ export default function CityPage({ params }) {
           </h1>
 
           <p style={styles.subtext}>
-            RoofFlow delivers <b>high-intent homeowners</b> in {city} directly to contractors.
-            No shared lists. No recycled data. Only real booking opportunities.
+            RoofFlow connects contractors in <b>{city}</b> with high-intent homeowners
+            actively requesting roofing estimates. No shared leads. No recycled data.
           </p>
 
-          <div style={styles.ctaRow}>
-            <Link href="/apply" style={styles.primaryButton}>
-              Apply for {city} Access →
-            </Link>
-          </div>
+          <Link href="/apply" style={styles.primaryButton}>
+            Apply for {city} Access →
+          </Link>
 
           <div style={styles.trustBar}>
-            ✔ Exclusive territories&nbsp;&nbsp; ✔ Verified homeowners&nbsp;&nbsp; ✔ Real-time routing
+            Exclusive territories • Verified homeowners • Real-time delivery
           </div>
         </header>
 
         {/* VALUE */}
         <section style={styles.section}>
-          <h2>Why Contractors in {city} Switch to RoofFlow</h2>
+          <h2>Why Contractors Choose RoofFlow in {city}</h2>
           <p style={styles.text}>
-            Traditional lead providers in {city} distribute the same lead to multiple contractors.
-            RoofFlow filters intent and assigns leads exclusively.
+            Traditional lead providers distribute the same inquiry to multiple contractors.
+            RoofFlow assigns leads exclusively to one approved contractor.
           </p>
         </section>
 
@@ -70,7 +68,7 @@ export default function CityPage({ params }) {
           <h2>How It Works</h2>
           <ul style={styles.list}>
             <li>Homeowners in {city} request roofing estimates</li>
-            <li>AI filters urgency, budget, and intent</li>
+            <li>Our system filters intent and urgency</li>
             <li>Qualified leads are assigned to one contractor</li>
           </ul>
         </section>
@@ -79,7 +77,7 @@ export default function CityPage({ params }) {
         <section style={styles.section}>
           <h2>What You Get</h2>
           <ul style={styles.list}>
-            <li>Exclusive territory access in {city}</li>
+            <li>Exclusive contractor territory in {city}</li>
             <li>No shared or recycled leads</li>
             <li>High-intent homeowner pipeline</li>
             <li>Instant lead delivery system</li>
@@ -88,15 +86,15 @@ export default function CityPage({ params }) {
 
         {/* URGENCY */}
         <div style={styles.urgency}>
-          ⚡ Limited contractor slots available in {city}
+          Limited contractor availability in {city}
         </div>
 
         {/* FINAL CTA */}
         <section style={styles.finalCta}>
-          <h2>Start Receiving Roofing Leads in {city}</h2>
+          <h2>Start Receiving Leads in {city}</h2>
 
           <p style={styles.text}>
-            Applications are reviewed to maintain lead quality and exclusivity per market.
+            Applications are reviewed to maintain lead quality and exclusivity in each market.
           </p>
 
           <Link href="/apply" style={styles.primaryButton}>
@@ -142,10 +140,6 @@ const styles = {
     marginBottom: "25px",
   },
 
-  ctaRow: {
-    marginBottom: "20px",
-  },
-
   primaryButton: {
     display: "inline-block",
     padding: "14px 20px",
@@ -159,7 +153,7 @@ const styles = {
   trustBar: {
     fontSize: "13px",
     opacity: 0.7,
-    marginTop: "10px",
+    marginTop: "12px",
   },
 
   section: {
