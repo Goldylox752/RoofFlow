@@ -1,191 +1,506 @@
+// communications/index.js
+// NorthSky Communications Layer
+// Telegram + WhatsApp + AI Routing + Lead Dispatch
+
+"use strict";
+
+/* =========================================
+   IMPORTS
+========================================= */
 const bot = require("./client");
 const twilio = require("twilio");
-const { dispatchLead } = require("../../call-center/dispatch");
 
-/* =======================
+const {
+  dispatchLead,
+} = require("../../call-center/dispatch");
+
+/* =========================================
+   ENVIRONMENT VALIDATION
+========================================= */
+const requiredEnv = [
+  "TWILIO_ACCOUNT_SID",
+  "TWILIO_AUTH_TOKEN"
+];
+
+requiredEnv.forEach((key) => {
+
+  if (!process.env[key]) {
+
+    console.warn(
+      `[env] Missing environment variable: ${key}`
+    );
+
+  }
+
+});
+
+/* =========================================
    TWILIO CLIENT
-======================= */
+========================================= */
 const twilioClient = twilio(
   process.env.TWILIO_ACCOUNT_SID,
   process.env.TWILIO_AUTH_TOKEN
 );
 
-/* =======================
-   FEATURE FLAGS
-======================= */
-const ENABLE_AI_RESPONSES =
-  process.env.ENABLE_AI_RESPONSES === "true";
+/* =========================================
+   CONFIG
+========================================= */
+const CONFIG = {
 
-/* =======================
-   COOLDOWNS
-======================= */
+  ENABLE_AI_RESPONSES:
+    process.env.ENABLE_AI_RESPONSES === "true",
+
+  COOLDOWN_MS:
+    Number(process.env.MESSAGE_COOLDOWN_MS || 3000),
+
+  MAX_MESSAGE_LENGTH: 2000,
+
+  LOG_PREFIX: "[northsky-communications]"
+
+};
+
+/* =========================================
+   IN-MEMORY RATE LIMITER
+========================================= */
 const userCooldowns = new Map();
-const COOLDOWN_MS = 3000;
 
 function isRateLimited(userId) {
-  const now = Date.now();
-  const last = userCooldowns.get(userId);
 
-  if (last && now - last < COOLDOWN_MS) return true;
+  if (!userId) return false;
+
+  const now = Date.now();
+
+  const lastSeen =
+    userCooldowns.get(userId);
+
+  if (
+    lastSeen &&
+    now - lastSeen < CONFIG.COOLDOWN_MS
+  ) {
+    return true;
+  }
 
   userCooldowns.set(userId, now);
+
   return false;
+
 }
 
-/* =======================
-   LEAD BUILDERS
-======================= */
-function buildLead({ source, chatId, text, user, metadata }) {
+/* =========================================
+   LOGGER
+========================================= */
+function log(type, message, meta = {}) {
+
+  console.log(
+    `${CONFIG.LOG_PREFIX} ${type} | ${message}`,
+    Object.keys(meta).length ? meta : ""
+  );
+
+}
+
+function logError(type, error, meta = {}) {
+
+  console.error(
+    `${CONFIG.LOG_PREFIX} ${type}`,
+    {
+      message: error?.message,
+      stack: error?.stack,
+      ...meta
+    }
+  );
+
+}
+
+/* =========================================
+   SANITIZATION
+========================================= */
+function sanitizeMessage(text = "") {
+
+  return String(text)
+    .trim()
+    .replace(/\s+/g, " ")
+    .slice(0, CONFIG.MAX_MESSAGE_LENGTH);
+
+}
+
+/* =========================================
+   LEAD FACTORY
+========================================= */
+function buildLead({
+  source,
+  chatId,
+  text,
+  user = {},
+  metadata = {}
+}) {
+
   return {
+
     source,
+
     chatId,
-    text: text?.trim(),
+
+    text: sanitizeMessage(text),
+
     user,
+
     metadata,
-    created_at: new Date().toISOString(),
+
+    created_at: new Date().toISOString()
+
   };
+
 }
 
-/* =======================
-   AI RESPONDER (OPTIONAL HOOK)
-   - plug OpenAI here later
-======================= */
-async function getAIResponse(messageText, source) {
-  if (!ENABLE_AI_RESPONSES) return null;
+/* =========================================
+   AI RESPONSE ENGINE
+========================================= */
+async function getAIResponse({
+  message,
+  source
+}) {
 
-  try {
-    // Placeholder (you can plug OpenAI here)
-    // return openai.chat.completions.create(...)
-    return `Got it — I understand your request about: "${messageText}". We’ll follow up shortly.`;
-  } catch (err) {
-    console.error("AI responder error:", err);
+  if (!CONFIG.ENABLE_AI_RESPONSES) {
     return null;
   }
-}
 
-/* =======================
-   TELEGRAM HANDLER
-======================= */
-async function handleTelegramMessage(msg) {
-  if (!msg.text) return;
+  try {
 
-  const userId = msg.from?.id;
+    // Plug OpenAI or Anthropic here later
 
-  if (isRateLimited(userId)) {
-    return bot.sendMessage(
-      msg.chat.id,
-      "Please slow down. Try again in a moment."
+    return (
+      `Thanks for reaching out to NorthSky.\n\n` +
+      `We received your ${source} request and a team member ` +
+      `will follow up shortly regarding:\n"${message}"`
     );
+
+  } catch (error) {
+
+    logError(
+      "[ai-response]",
+      error,
+      { source }
+    );
+
+    return null;
+
   }
 
-  const lead = buildLead({
-    source: "telegram",
-    chatId: msg.chat.id,
-    text: msg.text,
-    user: {
-      id: msg.from?.id,
-      username: msg.from?.username,
-      firstName: msg.from?.first_name,
-      lastName: msg.from?.last_name,
-    },
-    metadata: {
-      chatType: msg.chat.type,
-      language: msg.from?.language_code,
-      messageId: msg.message_id,
-    },
-  });
-
-  const result = await dispatchLead(lead);
-  const confirmationId = result?.leadId ?? `TG-${msg.message_id}`;
-
-  /* =======================
-     AI RESPONSE (OPTIONAL)
-  ======================= */
-  const aiReply = await getAIResponse(msg.text, "telegram");
-
-  await bot.sendMessage(
-    msg.chat.id,
-    aiReply
-      ? aiReply + `\n\nRef: #${confirmationId}`
-      : `Got it 👍 We'll be in touch shortly.\nReference: #${confirmationId}`
-  );
-
-  console.log(`[telegram] lead dispatched | user=${userId}`);
 }
 
-/* =======================
-   WHATSAPP HANDLER
-======================= */
-async function handleWhatsAppMessage(body, res) {
-  const userId = body.From;
+/* =========================================
+   RESPONSE BUILDERS
+========================================= */
+function buildConfirmation({
+  aiReply,
+  confirmationId
+}) {
 
-  if (!body.Body) return res.sendStatus(200);
+  if (aiReply) {
 
-  if (isRateLimited(userId)) {
-    const twiml = new twilio.twiml.MessagingResponse();
-    twiml.message("Please slow down. Try again shortly.");
+    return (
+      `${aiReply}\n\n` +
+      `Reference ID: #${confirmationId}`
+    );
 
-    res.set("Content-Type", "text/xml");
-    return res.send(twiml.toString());
   }
 
-  const lead = buildLead({
-    source: "whatsapp",
-    chatId: body.From,
-    text: body.Body,
-    user: {
-      phone: body.From,
-      profileName: body.ProfileName,
-    },
-    metadata: {
-      messageSid: body.MessageSid,
-    },
-  });
-
-  const result = await dispatchLead(lead);
-  const confirmationId = result?.leadId ?? `WA-${body.MessageSid}`;
-
-  /* =======================
-     AI RESPONSE (OPTIONAL)
-  ======================= */
-  const aiReply = await getAIResponse(body.Body, "whatsapp");
-
-  const twiml = new twilio.twiml.MessagingResponse();
-
-  twiml.message(
-    aiReply
-      ? aiReply + `\nRef: #${confirmationId}`
-      : `Got it 👍 We'll be in touch shortly.\nReference: #${confirmationId}`
+  return (
+    `Thanks — your request has been received.\n\n` +
+    `Reference ID: #${confirmationId}\n` +
+    `Our team will contact you shortly.`
   );
 
-  console.log(`[whatsapp] lead dispatched | user=${userId}`);
-
-  res.set("Content-Type", "text/xml");
-  return res.send(twiml.toString());
 }
 
-/* =======================
-   TELEGRAM BOOTSTRAP
-======================= */
-function bootstrapTelegram() {
-  console.log("[telegram] booting...");
+/* =========================================
+   TELEGRAM HANDLER
+========================================= */
+async function handleTelegramMessage(msg) {
 
-  bot.on("message", async (msg) => {
-    try {
-      await handleTelegramMessage(msg);
-    } catch (err) {
-      console.error("[telegram] handler error", err);
-      bot.sendMessage(msg.chat.id, "Something went wrong. Please try again.");
+  try {
+
+    if (!msg?.text) return;
+
+    const userId =
+      msg.from?.id;
+
+    if (isRateLimited(userId)) {
+
+      return bot.sendMessage(
+        msg.chat.id,
+        "You're sending messages too quickly. Please wait a moment."
+      );
+
     }
-  });
 
-  console.log("[telegram] ready");
+    const lead = buildLead({
+
+      source: "telegram",
+
+      chatId: msg.chat.id,
+
+      text: msg.text,
+
+      user: {
+        id: msg.from?.id,
+        username: msg.from?.username,
+        firstName: msg.from?.first_name,
+        lastName: msg.from?.last_name
+      },
+
+      metadata: {
+        chatType: msg.chat?.type,
+        language: msg.from?.language_code,
+        messageId: msg.message_id
+      }
+
+    });
+
+    const result =
+      await dispatchLead(lead);
+
+    const confirmationId =
+      result?.leadId ||
+      `TG-${msg.message_id}`;
+
+    const aiReply =
+      await getAIResponse({
+        message: msg.text,
+        source: "telegram"
+      });
+
+    await bot.sendMessage(
+      msg.chat.id,
+      buildConfirmation({
+        aiReply,
+        confirmationId
+      })
+    );
+
+    log(
+      "[telegram]",
+      "lead dispatched",
+      {
+        userId,
+        confirmationId
+      }
+    );
+
+  } catch (error) {
+
+    logError(
+      "[telegram-handler]",
+      error
+    );
+
+    try {
+
+      await bot.sendMessage(
+        msg.chat.id,
+        "Something went wrong while processing your request."
+      );
+
+    } catch (nestedError) {
+
+      logError(
+        "[telegram-reply]",
+        nestedError
+      );
+
+    }
+
+  }
+
 }
 
-/* =======================
+/* =========================================
+   WHATSAPP HANDLER
+========================================= */
+async function handleWhatsAppMessage(
+  body,
+  res
+) {
+
+  try {
+
+    const userId =
+      body?.From;
+
+    const message =
+      body?.Body;
+
+    if (!message) {
+
+      return res.sendStatus(200);
+
+    }
+
+    if (isRateLimited(userId)) {
+
+      const twiml =
+        new twilio.twiml.MessagingResponse();
+
+      twiml.message(
+        "You're sending messages too quickly. Please wait a moment."
+      );
+
+      res.set(
+        "Content-Type",
+        "text/xml"
+      );
+
+      return res.send(
+        twiml.toString()
+      );
+
+    }
+
+    const lead = buildLead({
+
+      source: "whatsapp",
+
+      chatId: body.From,
+
+      text: message,
+
+      user: {
+        phone: body.From,
+        profileName: body.ProfileName
+      },
+
+      metadata: {
+        messageSid: body.MessageSid
+      }
+
+    });
+
+    const result =
+      await dispatchLead(lead);
+
+    const confirmationId =
+      result?.leadId ||
+      `WA-${body.MessageSid}`;
+
+    const aiReply =
+      await getAIResponse({
+        message,
+        source: "whatsapp"
+      });
+
+    const twiml =
+      new twilio.twiml.MessagingResponse();
+
+    twiml.message(
+      buildConfirmation({
+        aiReply,
+        confirmationId
+      })
+    );
+
+    log(
+      "[whatsapp]",
+      "lead dispatched",
+      {
+        userId,
+        confirmationId
+      }
+    );
+
+    res.set(
+      "Content-Type",
+      "text/xml"
+    );
+
+    return res.send(
+      twiml.toString()
+    );
+
+  } catch (error) {
+
+    logError(
+      "[whatsapp-handler]",
+      error
+    );
+
+    const twiml =
+      new twilio.twiml.MessagingResponse();
+
+    twiml.message(
+      "Something went wrong while processing your request."
+    );
+
+    res.set(
+      "Content-Type",
+      "text/xml"
+    );
+
+    return res.send(
+      twiml.toString()
+    );
+
+  }
+
+}
+
+/* =========================================
+   TELEGRAM BOOTSTRAP
+========================================= */
+function bootstrapTelegram() {
+
+  log(
+    "[telegram]",
+    "booting"
+  );
+
+  bot.on(
+    "message",
+    async (msg) => {
+
+      await handleTelegramMessage(msg);
+
+    }
+  );
+
+  log(
+    "[telegram]",
+    "ready"
+  );
+
+}
+
+/* =========================================
+   HEALTHCHECK
+========================================= */
+function getCommunicationsHealth() {
+
+  return {
+
+    telegram: !!bot,
+
+    twilio: !!twilioClient,
+
+    aiResponses:
+      CONFIG.ENABLE_AI_RESPONSES,
+
+    uptime:
+      process.uptime()
+
+  };
+
+}
+
+/* =========================================
    EXPORTS
-======================= */
+========================================= */
 module.exports = {
+
   bootstrapTelegram,
+
   handleWhatsAppMessage,
+
+  handleTelegramMessage,
+
+  getCommunicationsHealth
+
 };
