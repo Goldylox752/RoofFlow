@@ -2,10 +2,13 @@
   "name": "roofflow",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "scripts": {
-    "start": "npx serve -s . -l 10000"
+    "start": "node server.js"
   },
   "dependencies": {
-    "serve": "^14.2.1"
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "@supabase/supabase-js": "^2.45.0"
   }
 }
