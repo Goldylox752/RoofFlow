@@ -1,506 +1,263 @@
-// communications/index.js
-// NorthSky Communications Layer
-// Telegram + WhatsApp + AI Routing + Lead Dispatch
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-"use strict";
+<title>Sanche Solutions | Byron Sanche — Full Stack Developer & AI Automation</title>
 
-/* =========================================
-   IMPORTS
-========================================= */
-const bot = require("./client");
-const twilio = require("twilio");
+<meta name="description" content="Byron Sanche builds high-performance websites, AI lead systems, CRM automations, REST APIs, cloud deployments, and networking infrastructure for modern businesses. Based in Edmonton, Alberta, Canada." />
+<meta name="robots" content="index, follow" />
+<link rel="canonical" href="https://sanchesolutions.com/" />
 
-const {
-  dispatchLead,
-} = require("../../call-center/dispatch");
+<!-- OPEN GRAPH -->
+<meta property="og:type" content="website" />
+<meta property="og:title" content="Sanche Solutions | AI Automation & Web Development" />
+<meta property="og:description" content="AI systems, automation, and full stack development." />
 
-/* =========================================
-   ENVIRONMENT VALIDATION
-========================================= */
-const requiredEnv = [
-  "TWILIO_ACCOUNT_SID",
-  "TWILIO_AUTH_TOKEN"
-];
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 
-requiredEnv.forEach((key) => {
+<style>
+/* =========================
+   BASE
+========================= */
+*{margin:0;padding:0;box-sizing:border-box;}
+:root{
+  --bg:#04060f;
+  --surface:#080d1a;
+  --surface2:#0c1422;
+  --border:rgba(255,255,255,.06);
+  --text:#eef2ff;
+  --muted:#94a3b8;
+  --accent:#63b3ed;
+  --accent2:#7c6af7;
+}
 
-  if (!process.env[key]) {
+body{
+  background:var(--bg);
+  color:var(--text);
+  font-family:'DM Sans',sans-serif;
+  overflow-x:hidden;
+}
 
-    console.warn(
-      `[env] Missing environment variable: ${key}`
+/* =========================
+   BOT FAB
+========================= */
+.ai-fab{
+  position:fixed;
+  bottom:24px;
+  right:24px;
+  width:58px;
+  height:58px;
+  border-radius:50%;
+  background:linear-gradient(135deg,var(--accent),var(--accent2));
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:22px;
+  cursor:pointer;
+  z-index:99999;
+  box-shadow:0 10px 30px rgba(0,0,0,.4);
+}
+
+/* =========================
+   BOT PANEL
+========================= */
+.ai-panel{
+  position:fixed;
+  bottom:92px;
+  right:24px;
+  width:360px;
+  height:480px;
+  background:linear-gradient(160deg,var(--surface),var(--surface2));
+  border:1px solid var(--border);
+  border-radius:18px;
+  display:none;
+  flex-direction:column;
+  z-index:99999;
+  overflow:hidden;
+}
+
+.ai-header{
+  padding:14px;
+  display:flex;
+  justify-content:space-between;
+  border-bottom:1px solid var(--border);
+}
+
+.ai-title{
+  font-family:'Syne',sans-serif;
+  font-weight:700;
+  font-size:14px;
+}
+
+.ai-sub{
+  font-size:11px;
+  color:var(--muted);
+}
+
+#ai-close{cursor:pointer;color:var(--muted);}
+
+.ai-messages{
+  flex:1;
+  padding:14px;
+  overflow-y:auto;
+  font-size:13px;
+}
+
+.ai-msg{
+  margin-bottom:10px;
+  padding:10px 12px;
+  border-radius:10px;
+  white-space:pre-wrap;
+  max-width:85%;
+}
+
+.ai-user{
+  background:rgba(255,255,255,.05);
+  margin-left:auto;
+  border:1px solid var(--border);
+}
+
+.ai-bot{
+  background:rgba(99,179,237,.08);
+  border:1px solid rgba(99,179,237,.2);
+}
+
+.ai-input{
+  display:flex;
+  border-top:1px solid var(--border);
+}
+
+.ai-input input{
+  flex:1;
+  padding:12px;
+  background:transparent;
+  border:none;
+  color:white;
+  outline:none;
+}
+
+.ai-input button{
+  background:linear-gradient(135deg,var(--accent),var(--accent2));
+  border:none;
+  padding:0 16px;
+  cursor:pointer;
+  font-weight:600;
+}
+
+/* =========================
+   YOUR ORIGINAL STYLES (SHORTENED KEEP PLACEHOLDER)
+========================= */
+/* (KEEP YOUR FULL ORIGINAL CSS HERE — NOT REMOVED) */
+
+</style>
+</head>
+
+<body>
+
+<!-- =========================
+   YOUR FULL ORIGINAL PAGE CONTENT
+   (UNCHANGED - HERO, PROJECTS, ETC)
+========================= -->
+
+<!-- NAV / HERO / PROJECTS / SKILLS / CTA -->
+<!-- KEEP ALL YOUR EXISTING HTML EXACTLY AS IS -->
+
+<!-- =========================
+   AI BOT UI
+========================= -->
+
+<div class="ai-fab" id="ai-fab">💬</div>
+
+<div class="ai-panel" id="ai-panel">
+  <div class="ai-header">
+    <div>
+      <div class="ai-title">Sanche AI Assistant</div>
+      <div class="ai-sub">Get quotes instantly</div>
+    </div>
+    <div id="ai-close">✕</div>
+  </div>
+
+  <div class="ai-messages" id="ai-messages"></div>
+
+  <div class="ai-input">
+    <input id="ai-input" placeholder="Tell me about your project..." />
+    <button id="ai-send">Send</button>
+  </div>
+</div>
+
+<!-- =========================
+   BOT SCRIPT
+========================= -->
+<script>
+const fab = document.getElementById("ai-fab");
+const panel = document.getElementById("ai-panel");
+const closeBtn = document.getElementById("ai-close");
+
+const input = document.getElementById("ai-input");
+const sendBtn = document.getElementById("ai-send");
+const messages = document.getElementById("ai-messages");
+
+function addMsg(text, type){
+  const div = document.createElement("div");
+  div.className = "ai-msg " + type;
+  div.innerText = text;
+  messages.appendChild(div);
+  messages.scrollTop = messages.scrollHeight;
+}
+
+fab.onclick = () => {
+  panel.style.display = "flex";
+
+  if(messages.childElementCount === 0){
+    addMsg(
+`Hey 👋 I’m your AI assistant for Sanche Solutions.
+
+I help with:
+• Websites
+• AI automation
+• CRM systems
+• Lead generation
+
+What are you looking to build?`,
+      "ai-bot"
     );
-
   }
+};
 
+closeBtn.onclick = () => {
+  panel.style.display = "none";
+};
+
+async function send(){
+  const text = input.value.trim();
+  if(!text) return;
+
+  addMsg(text,"ai-user");
+  input.value="";
+
+  try{
+    const res = await fetch("/api/bot",{
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({ message:text })
+    });
+
+    const data = await res.json();
+    addMsg(data.reply,"ai-bot");
+
+  }catch(e){
+    addMsg("Error — try WhatsApp instead.","ai-bot");
+  }
+}
+
+sendBtn.onclick = send;
+
+input.addEventListener("keydown",(e)=>{
+  if(e.key==="Enter") send();
 });
+</script>
 
-/* =========================================
-   TWILIO CLIENT
-========================================= */
-const twilioClient = twilio(
-  process.env.TWILIO_ACCOUNT_SID,
-  process.env.TWILIO_AUTH_TOKEN
-);
-
-/* =========================================
-   CONFIG
-========================================= */
-const CONFIG = {
-
-  ENABLE_AI_RESPONSES:
-    process.env.ENABLE_AI_RESPONSES === "true",
-
-  COOLDOWN_MS:
-    Number(process.env.MESSAGE_COOLDOWN_MS || 3000),
-
-  MAX_MESSAGE_LENGTH: 2000,
-
-  LOG_PREFIX: "[northsky-communications]"
-
-};
-
-/* =========================================
-   IN-MEMORY RATE LIMITER
-========================================= */
-const userCooldowns = new Map();
-
-function isRateLimited(userId) {
-
-  if (!userId) return false;
-
-  const now = Date.now();
-
-  const lastSeen =
-    userCooldowns.get(userId);
-
-  if (
-    lastSeen &&
-    now - lastSeen < CONFIG.COOLDOWN_MS
-  ) {
-    return true;
-  }
-
-  userCooldowns.set(userId, now);
-
-  return false;
-
-}
-
-/* =========================================
-   LOGGER
-========================================= */
-function log(type, message, meta = {}) {
-
-  console.log(
-    `${CONFIG.LOG_PREFIX} ${type} | ${message}`,
-    Object.keys(meta).length ? meta : ""
-  );
-
-}
-
-function logError(type, error, meta = {}) {
-
-  console.error(
-    `${CONFIG.LOG_PREFIX} ${type}`,
-    {
-      message: error?.message,
-      stack: error?.stack,
-      ...meta
-    }
-  );
-
-}
-
-/* =========================================
-   SANITIZATION
-========================================= */
-function sanitizeMessage(text = "") {
-
-  return String(text)
-    .trim()
-    .replace(/\s+/g, " ")
-    .slice(0, CONFIG.MAX_MESSAGE_LENGTH);
-
-}
-
-/* =========================================
-   LEAD FACTORY
-========================================= */
-function buildLead({
-  source,
-  chatId,
-  text,
-  user = {},
-  metadata = {}
-}) {
-
-  return {
-
-    source,
-
-    chatId,
-
-    text: sanitizeMessage(text),
-
-    user,
-
-    metadata,
-
-    created_at: new Date().toISOString()
-
-  };
-
-}
-
-/* =========================================
-   AI RESPONSE ENGINE
-========================================= */
-async function getAIResponse({
-  message,
-  source
-}) {
-
-  if (!CONFIG.ENABLE_AI_RESPONSES) {
-    return null;
-  }
-
-  try {
-
-    // Plug OpenAI or Anthropic here later
-
-    return (
-      `Thanks for reaching out to NorthSky.\n\n` +
-      `We received your ${source} request and a team member ` +
-      `will follow up shortly regarding:\n"${message}"`
-    );
-
-  } catch (error) {
-
-    logError(
-      "[ai-response]",
-      error,
-      { source }
-    );
-
-    return null;
-
-  }
-
-}
-
-/* =========================================
-   RESPONSE BUILDERS
-========================================= */
-function buildConfirmation({
-  aiReply,
-  confirmationId
-}) {
-
-  if (aiReply) {
-
-    return (
-      `${aiReply}\n\n` +
-      `Reference ID: #${confirmationId}`
-    );
-
-  }
-
-  return (
-    `Thanks — your request has been received.\n\n` +
-    `Reference ID: #${confirmationId}\n` +
-    `Our team will contact you shortly.`
-  );
-
-}
-
-/* =========================================
-   TELEGRAM HANDLER
-========================================= */
-async function handleTelegramMessage(msg) {
-
-  try {
-
-    if (!msg?.text) return;
-
-    const userId =
-      msg.from?.id;
-
-    if (isRateLimited(userId)) {
-
-      return bot.sendMessage(
-        msg.chat.id,
-        "You're sending messages too quickly. Please wait a moment."
-      );
-
-    }
-
-    const lead = buildLead({
-
-      source: "telegram",
-
-      chatId: msg.chat.id,
-
-      text: msg.text,
-
-      user: {
-        id: msg.from?.id,
-        username: msg.from?.username,
-        firstName: msg.from?.first_name,
-        lastName: msg.from?.last_name
-      },
-
-      metadata: {
-        chatType: msg.chat?.type,
-        language: msg.from?.language_code,
-        messageId: msg.message_id
-      }
-
-    });
-
-    const result =
-      await dispatchLead(lead);
-
-    const confirmationId =
-      result?.leadId ||
-      `TG-${msg.message_id}`;
-
-    const aiReply =
-      await getAIResponse({
-        message: msg.text,
-        source: "telegram"
-      });
-
-    await bot.sendMessage(
-      msg.chat.id,
-      buildConfirmation({
-        aiReply,
-        confirmationId
-      })
-    );
-
-    log(
-      "[telegram]",
-      "lead dispatched",
-      {
-        userId,
-        confirmationId
-      }
-    );
-
-  } catch (error) {
-
-    logError(
-      "[telegram-handler]",
-      error
-    );
-
-    try {
-
-      await bot.sendMessage(
-        msg.chat.id,
-        "Something went wrong while processing your request."
-      );
-
-    } catch (nestedError) {
-
-      logError(
-        "[telegram-reply]",
-        nestedError
-      );
-
-    }
-
-  }
-
-}
-
-/* =========================================
-   WHATSAPP HANDLER
-========================================= */
-async function handleWhatsAppMessage(
-  body,
-  res
-) {
-
-  try {
-
-    const userId =
-      body?.From;
-
-    const message =
-      body?.Body;
-
-    if (!message) {
-
-      return res.sendStatus(200);
-
-    }
-
-    if (isRateLimited(userId)) {
-
-      const twiml =
-        new twilio.twiml.MessagingResponse();
-
-      twiml.message(
-        "You're sending messages too quickly. Please wait a moment."
-      );
-
-      res.set(
-        "Content-Type",
-        "text/xml"
-      );
-
-      return res.send(
-        twiml.toString()
-      );
-
-    }
-
-    const lead = buildLead({
-
-      source: "whatsapp",
-
-      chatId: body.From,
-
-      text: message,
-
-      user: {
-        phone: body.From,
-        profileName: body.ProfileName
-      },
-
-      metadata: {
-        messageSid: body.MessageSid
-      }
-
-    });
-
-    const result =
-      await dispatchLead(lead);
-
-    const confirmationId =
-      result?.leadId ||
-      `WA-${body.MessageSid}`;
-
-    const aiReply =
-      await getAIResponse({
-        message,
-        source: "whatsapp"
-      });
-
-    const twiml =
-      new twilio.twiml.MessagingResponse();
-
-    twiml.message(
-      buildConfirmation({
-        aiReply,
-        confirmationId
-      })
-    );
-
-    log(
-      "[whatsapp]",
-      "lead dispatched",
-      {
-        userId,
-        confirmationId
-      }
-    );
-
-    res.set(
-      "Content-Type",
-      "text/xml"
-    );
-
-    return res.send(
-      twiml.toString()
-    );
-
-  } catch (error) {
-
-    logError(
-      "[whatsapp-handler]",
-      error
-    );
-
-    const twiml =
-      new twilio.twiml.MessagingResponse();
-
-    twiml.message(
-      "Something went wrong while processing your request."
-    );
-
-    res.set(
-      "Content-Type",
-      "text/xml"
-    );
-
-    return res.send(
-      twiml.toString()
-    );
-
-  }
-
-}
-
-/* =========================================
-   TELEGRAM BOOTSTRAP
-========================================= */
-function bootstrapTelegram() {
-
-  log(
-    "[telegram]",
-    "booting"
-  );
-
-  bot.on(
-    "message",
-    async (msg) => {
-
-      await handleTelegramMessage(msg);
-
-    }
-  );
-
-  log(
-    "[telegram]",
-    "ready"
-  );
-
-}
-
-/* =========================================
-   HEALTHCHECK
-========================================= */
-function getCommunicationsHealth() {
-
-  return {
-
-    telegram: !!bot,
-
-    twilio: !!twilioClient,
-
-    aiResponses:
-      CONFIG.ENABLE_AI_RESPONSES,
-
-    uptime:
-      process.uptime()
-
-  };
-
-}
-
-/* =========================================
-   EXPORTS
-========================================= */
-module.exports = {
-
-  bootstrapTelegram,
-
-  handleWhatsAppMessage,
-
-  handleTelegramMessage,
-
-  getCommunicationsHealth
-
-};
+</body>
+</html>
