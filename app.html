@@ -3,107 +3,94 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>SancheSolutions AI · App</title>
-
-<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<title>SancheAI · Roofing Sales Bot</title>
 
 <style>
-:root {
+:root{
   --bg:#050816;
-  --panel:rgba(255,255,255,0.04);
+  --panel:#0b1224;
   --border:rgba(255,255,255,0.08);
-  --text:#eaf0ff;
-  --muted:#9aa4b2;
   --blue:#4f8cff;
+  --text:#edf2ff;
 }
 
-* {
-  box-sizing:border-box;
-  font-family:DM Sans, sans-serif;
-}
-
-body {
+*{
   margin:0;
-  background:radial-gradient(circle at top, #0b1a3a, var(--bg));
-  color:var(--text);
+  padding:0;
+  box-sizing:border-box;
+  font-family:Arial, sans-serif;
+}
+
+body{
   height:100vh;
   display:flex;
   flex-direction:column;
+  background:var(--bg);
+  color:var(--text);
 }
 
 /* HEADER */
-header {
-  padding:14px 18px;
+header{
+  padding:14px;
+  background:var(--panel);
+  border-bottom:1px solid var(--border);
   display:flex;
   justify-content:space-between;
   align-items:center;
-  border-bottom:1px solid var(--border);
-  backdrop-filter:blur(10px);
 }
 
-.logo {
-  font-weight:700;
-  font-size:14px;
+header h1{
+  font-size:15px;
 }
 
-.logo span { color:var(--blue); }
-
-a.btn {
-  text-decoration:none;
-  background:var(--blue);
-  color:white;
-  padding:8px 12px;
-  border-radius:10px;
-  font-size:13px;
+.badge{
+  font-size:12px;
+  padding:6px 10px;
+  border-radius:20px;
+  background:rgba(79,140,255,0.15);
+  color:var(--blue);
 }
 
 /* CHAT */
-.chat {
-  flex:1;
-  display:flex;
-  flex-direction:column;
-  max-width:900px;
-  width:100%;
-  margin:auto;
-  padding:20px;
-}
-
-.messages {
+.chat{
   flex:1;
   overflow-y:auto;
+  padding:16px;
   display:flex;
   flex-direction:column;
   gap:10px;
-  padding-bottom:10px;
 }
 
-.msg {
+.msg{
   max-width:75%;
-  padding:10px 12px;
+  padding:12px 14px;
   border-radius:12px;
   font-size:14px;
   line-height:1.4;
   white-space:pre-wrap;
 }
 
-.user {
+.user{
   background:var(--blue);
-  margin-left:auto;
+  align-self:flex-end;
 }
 
-.bot {
+.ai{
   background:var(--panel);
   border:1px solid var(--border);
+  align-self:flex-start;
 }
 
 /* INPUT */
-.input-bar {
+.input-bar{
   display:flex;
   gap:10px;
-  padding-top:10px;
+  padding:12px;
+  background:var(--panel);
+  border-top:1px solid var(--border);
 }
 
-input {
+input{
   flex:1;
   padding:12px;
   border-radius:10px;
@@ -113,25 +100,14 @@ input {
   outline:none;
 }
 
-button {
-  width:90px;
+button{
+  padding:12px 14px;
   border:none;
   border-radius:10px;
+  cursor:pointer;
+  font-weight:700;
   background:var(--blue);
   color:white;
-  font-weight:600;
-  cursor:pointer;
-}
-
-button:disabled {
-  opacity:0.6;
-  cursor:not-allowed;
-}
-
-.typing {
-  font-size:12px;
-  color:var(--muted);
-  margin-bottom:6px;
 }
 </style>
 </head>
@@ -139,88 +115,117 @@ button:disabled {
 <body>
 
 <header>
-  <div class="logo">Sanche<span>AI</span> · App</div>
-  <a class="btn" href="/">← Home</a>
+  <h1>SancheAI · Roofing Sales Bot</h1>
+  <div class="badge">Groq AI · Demo Setter</div>
 </header>
 
-<div class="chat">
-  <div id="messages" class="messages"></div>
+<div class="chat" id="chat"></div>
 
-  <div class="typing" id="typing" style="display:none;">
-    AI is thinking...
-  </div>
-
-  <div class="input-bar">
-    <input id="input" placeholder="Ask about automation, SaaS, leads..." />
-    <button id="sendBtn" onclick="send()">Send</button>
-  </div>
+<div class="input-bar">
+  <input id="input" placeholder="Ask about roofing leads, automation, CRM..." />
+  <button onclick="send()">Send</button>
 </div>
 
 <script>
-const messages = document.getElementById("messages");
-const input = document.getElementById("input");
-const typing = document.getElementById("typing");
-const sendBtn = document.getElementById("sendBtn");
 
-/* UI */
-function addMsg(text, type) {
+/* =========================
+   BACKEND
+========================= */
+const API_URL = "https://sanchesolutions.onrender.com/chat";
+
+/* =========================
+   SYSTEM PROMPT (YOUR CORE BRAIN)
+========================= */
+const SYSTEM_PROMPT = `
+You are SancheAI, a roofing SaaS sales assistant.
+
+Goal: convert users into booked demos.
+
+Focus on:
+- storm leads
+- job automation
+- CRM value
+
+Keep answers short and persuasive.
+Always guide users toward booking a demo or seeing value fast.
+Never be overly technical unless asked.
+`;
+
+/* =========================
+   USER ID
+========================= */
+const user_id =
+  localStorage.getItem("user_id") ||
+  crypto.randomUUID();
+
+localStorage.setItem("user_id", user_id);
+
+/* =========================
+   UI
+========================= */
+const chat = document.getElementById("chat");
+const input = document.getElementById("input");
+
+function addMsg(text, type){
   const div = document.createElement("div");
   div.className = "msg " + type;
   div.textContent = text;
-  messages.appendChild(div);
-  messages.scrollTop = messages.scrollHeight;
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
 }
 
-/* LOADING */
-function setLoading(state) {
-  typing.style.display = state ? "block" : "none";
-  sendBtn.disabled = state;
-}
+/* =========================
+   SEND MESSAGE
+========================= */
+async function send(){
 
-/* CORE CHAT (Groq backend) */
-async function send() {
   const text = input.value.trim();
-  if (!text) return;
+  if(!text) return;
 
-  addMsg(text, "user");
+  addMsg(text,"user");
   input.value = "";
 
-  setLoading(true);
+  const load = document.createElement("div");
+  load.className = "msg ai";
+  load.textContent = "Thinking...";
+  chat.appendChild(load);
+  chat.scrollTop = chat.scrollHeight;
 
-  try {
-    const res = await fetch("/api/chat", {
+  try{
+
+    const res = await fetch(API_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
         message: text,
-        session: "default"
+        user_id: user_id,
+        system: SYSTEM_PROMPT
       })
     });
 
-    if (!res.ok) throw new Error("Server error");
-
     const data = await res.json();
 
-    addMsg(data.reply || "No response received.", "bot");
+    load.textContent =
+      data.reply || "No response from AI.";
 
-  } catch (err) {
-    addMsg("⚠️ Error connecting to AI backend. Check /api/chat route.", "bot");
+  }catch(err){
+    console.error(err);
+    load.textContent = "⚠️ AI backend offline or error.";
   }
-
-  setLoading(false);
 }
 
-/* ENTER KEY */
-input.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") send();
+/* ENTER KEY SUPPORT */
+input.addEventListener("keypress",(e)=>{
+  if(e.key === "Enter") send();
 });
 
-/* INIT */
+/* INIT MESSAGE */
 window.onload = () => {
-  addMsg("👋 Welcome to SancheSolutions AI.\nAsk anything about automation, SaaS, or revenue systems.", "bot");
+  addMsg("👋 I’m SancheAI.\nI help roofing companies generate more storm leads and automate jobs.\nAsk me anything or request a demo setup.", "ai");
 };
+
 </script>
 
 </body>
