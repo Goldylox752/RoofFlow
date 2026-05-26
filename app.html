@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>SancheSolutions AI · App</title>
+
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+<style>
+:root {
+  --bg:#050816;
+  --panel:rgba(255,255,255,0.04);
+  --border:rgba(255,255,255,0.08);
+  --text:#eaf0ff;
+  --muted:#9aa4b2;
+  --blue:#4f8cff;
+}
+
+* {
+  box-sizing:border-box;
+  font-family:DM Sans, sans-serif;
+}
+
+body {
+  margin:0;
+  background:radial-gradient(circle at top, #0b1a3a, var(--bg));
+  color:var(--text);
+  height:100vh;
+  display:flex;
+  flex-direction:column;
+}
+
+/* HEADER */
+header {
+  padding:14px 18px;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  border-bottom:1px solid var(--border);
+  backdrop-filter:blur(10px);
+}
+
+.logo {
+  font-weight:700;
+  font-size:14px;
+}
+
+.logo span { color:var(--blue); }
+
+a.btn {
+  text-decoration:none;
+  background:var(--blue);
+  color:white;
+  padding:8px 12px;
+  border-radius:10px;
+  font-size:13px;
+}
+
+/* CHAT */
+.chat {
+  flex:1;
+  display:flex;
+  flex-direction:column;
+  max-width:900px;
+  width:100%;
+  margin:auto;
+  padding:20px;
+}
+
+.messages {
+  flex:1;
+  overflow-y:auto;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+  padding-bottom:10px;
+}
+
+.msg {
+  max-width:75%;
+  padding:10px 12px;
+  border-radius:12px;
+  font-size:14px;
+  line-height:1.4;
+  white-space:pre-wrap;
+}
+
+.user {
+  background:var(--blue);
+  margin-left:auto;
+}
+
+.bot {
+  background:var(--panel);
+  border:1px solid var(--border);
+}
+
+/* INPUT */
+.input-bar {
+  display:flex;
+  gap:10px;
+  padding-top:10px;
+}
+
+input {
+  flex:1;
+  padding:12px;
+  border-radius:10px;
+  border:1px solid var(--border);
+  background:rgba(255,255,255,0.03);
+  color:white;
+  outline:none;
+}
+
+button {
+  width:90px;
+  border:none;
+  border-radius:10px;
+  background:var(--blue);
+  color:white;
+  font-weight:600;
+  cursor:pointer;
+}
+
+button:disabled {
+  opacity:0.6;
+  cursor:not-allowed;
+}
+
+.typing {
+  font-size:12px;
+  color:var(--muted);
+  margin-bottom:6px;
+}
+</style>
+</head>
+
+<body>
+
+<header>
+  <div class="logo">Sanche<span>AI</span> · App</div>
+  <a class="btn" href="/">← Home</a>
+</header>
+
+<div class="chat">
+  <div id="messages" class="messages"></div>
+
+  <div class="typing" id="typing" style="display:none;">
+    AI is thinking...
+  </div>
+
+  <div class="input-bar">
+    <input id="input" placeholder="Ask about automation, SaaS, leads..." />
+    <button id="sendBtn" onclick="send()">Send</button>
+  </div>
+</div>
+
+<script>
+const messages = document.getElementById("messages");
+const input = document.getElementById("input");
+const typing = document.getElementById("typing");
+const sendBtn = document.getElementById("sendBtn");
+
+/* UI */
+function addMsg(text, type) {
+  const div = document.createElement("div");
+  div.className = "msg " + type;
+  div.textContent = text;
+  messages.appendChild(div);
+  messages.scrollTop = messages.scrollHeight;
+}
+
+/* LOADING */
+function setLoading(state) {
+  typing.style.display = state ? "block" : "none";
+  sendBtn.disabled = state;
+}
+
+/* CORE CHAT (Groq backend) */
+async function send() {
+  const text = input.value.trim();
+  if (!text) return;
+
+  addMsg(text, "user");
+  input.value = "";
+
+  setLoading(true);
+
+  try {
+    const res = await fetch("/api/chat", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        message: text,
+        session: "default"
+      })
+    });
+
+    if (!res.ok) throw new Error("Server error");
+
+    const data = await res.json();
+
+    addMsg(data.reply || "No response received.", "bot");
+
+  } catch (err) {
+    addMsg("⚠️ Error connecting to AI backend. Check /api/chat route.", "bot");
+  }
+
+  setLoading(false);
+}
+
+/* ENTER KEY */
+input.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") send();
+});
+
+/* INIT */
+window.onload = () => {
+  addMsg("👋 Welcome to SancheSolutions AI.\nAsk anything about automation, SaaS, or revenue systems.", "bot");
+};
+</script>
+
+</body>
+</html>
