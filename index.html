@@ -4,8 +4,8 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 
-<title>Meridian Market — AI Product Engine</title>
-<meta name="description" content="Meridian Market is an AI-driven commerce system that discovers, tests, and sells winning products automatically." />
+<title>RoofFlow — AI Roofing Lead System</title>
+<meta name="description" content="RoofFlow is an AI automation system for roofing contractors that captures leads, qualifies homeowners, and books jobs automatically." />
 
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet"/>
 
@@ -16,7 +16,7 @@
   --border:rgba(255,255,255,0.08);
   --text:#EAF2FF;
   --muted:rgba(234,242,255,0.65);
-  --accent:#6D5EFc;
+  --accent:#f97316;
   --accent2:#22c55e;
 }
 
@@ -24,7 +24,7 @@
 
 body{
   font-family:Inter,sans-serif;
-  background:radial-gradient(circle at top,#121a33,var(--bg));
+  background:radial-gradient(circle at top,#101a2f,var(--bg));
   color:var(--text);
 }
 
@@ -41,7 +41,7 @@ nav{
 }
 
 .logo{
-  font-weight:800;
+  font-weight:900;
   letter-spacing:1px;
 }
 
@@ -71,8 +71,8 @@ nav a:hover{opacity:1;}
 }
 
 .hero h1{
-  font-size:52px;
-  font-weight:800;
+  font-size:54px;
+  font-weight:900;
 }
 
 .hero h1 span{
@@ -86,6 +86,7 @@ nav a:hover{opacity:1;}
   line-height:1.6;
 }
 
+/* BUTTONS */
 .btns{
   margin-top:20px;
 }
@@ -95,20 +96,26 @@ nav a:hover{opacity:1;}
   padding:12px 16px;
   margin:6px;
   border-radius:10px;
-  font-weight:600;
+  font-weight:700;
   text-decoration:none;
 }
 
 .primary{background:var(--accent);color:white;}
 .secondary{border:1px solid var(--border);color:var(--text);}
 
-/* GRID */
+/* SECTION */
 .section{
   max-width:1100px;
   margin:auto;
   padding:60px 20px;
 }
 
+.section h2{
+  text-align:center;
+  margin-bottom:30px;
+}
+
+/* GRID */
 .grid{
   display:grid;
   grid-template-columns:repeat(auto-fit,minmax(240px,1fr));
@@ -182,6 +189,7 @@ button:disabled{
   cursor:not-allowed;
 }
 
+/* FOOTER */
 footer{
   text-align:center;
   padding:40px;
@@ -194,60 +202,60 @@ footer{
 <body>
 
 <nav>
-  <div class="logo">Meridian<span>Market</span></div>
+  <div class="logo">Roof<span>Flow</span></div>
   <div>
     <a href="#store">Store</a>
     <a href="#features">AI Engine</a>
-    <a class="cta" href="/app.html">Launch</a>
+    <a class="cta" href="/app.html">Launch App</a>
   </div>
 </nav>
 
 <section class="hero">
-  <h1>AI Finds <span>Winning Products</span></h1>
+  <h1>AI Generates <span>Roofing Leads</span></h1>
   <p>
-    Meridian Market is an autonomous commerce engine that scrapes products,
-    scores demand, and automatically tests winning offers in real time.
+    RoofFlow is an automation system that captures storm leads, qualifies homeowners instantly,
+    and books roofing inspections without manual follow-up.
   </p>
 
   <div class="btns">
-    <a class="btn primary" href="/app.html">Enter System</a>
-    <a class="btn secondary" href="#store">Browse Store</a>
+    <a class="btn primary" href="/app.html">Start System</a>
+    <a class="btn secondary" href="#store">View Tools</a>
   </div>
 </section>
 
 <section class="section" id="features">
-  <h2>AI Commerce Engine</h2>
+  <h2>Automation Engine</h2>
 
   <div class="grid">
     <div class="card">
-      <h3>Product Mining AI</h3>
-      <p>Continuously scrapes and discovers high-performing products.</p>
+      <h3>Lead Capture AI</h3>
+      <p>Instantly captures inbound roofing leads from all channels.</p>
     </div>
 
     <div class="card">
-      <h3>Sales Feedback Loop</h3>
-      <p>System learns from purchases and improves future product selection.</p>
+      <h3>AI Qualification</h3>
+      <p>Filters serious homeowners from low-intent traffic.</p>
     </div>
 
     <div class="card">
-      <h3>Auto Import Pipeline</h3>
-      <p>Instantly converts scraped products into live store listings.</p>
+      <h3>Auto Booking</h3>
+      <p>Schedules inspections automatically into your calendar.</p>
     </div>
 
     <div class="card">
-      <h3>Stripe Checkout Engine</h3>
-      <p>Fully automated checkout + order + fulfillment flow.</p>
+      <h3>CRM Sync</h3>
+      <p>Connects to JobNimbus, AccuLynx, and other CRMs.</p>
     </div>
   </div>
 </section>
 
 <section class="section" id="store">
-  <h2>Live Store</h2>
+  <h2>Live System Store</h2>
   <div id="products" class="store-grid">Loading...</div>
 </section>
 
 <footer>
-  © 2026 Meridian Market — Autonomous Commerce System
+  © 2026 RoofFlow — AI Roofing Automation System
 </footer>
 
 <script>
