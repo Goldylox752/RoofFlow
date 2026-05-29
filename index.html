@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 
 <title>RoofFlow — AI Roofing Lead System</title>
-<meta name="description" content="RoofFlow is an AI automation system for roofing contractors that captures leads, qualifies homeowners, and books jobs automatically." />
+
+<meta name="description" content="RoofFlow is an AI-powered roofing automation system that captures leads, qualifies homeowners, and books inspections automatically." />
 
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet"/>
 
@@ -13,11 +14,13 @@
 :root{
   --bg:#070A12;
   --panel:rgba(255,255,255,0.04);
+  --panel2:rgba(255,255,255,0.06);
   --border:rgba(255,255,255,0.08);
   --text:#EAF2FF;
   --muted:rgba(234,242,255,0.65);
   --accent:#f97316;
   --accent2:#22c55e;
+  --danger:#ef4444;
 }
 
 *{margin:0;padding:0;box-sizing:border-box;}
@@ -26,18 +29,21 @@ body{
   font-family:Inter,sans-serif;
   background:radial-gradient(circle at top,#101a2f,var(--bg));
   color:var(--text);
+  min-height:100vh;
 }
 
 /* NAV */
 nav{
   display:flex;
   justify-content:space-between;
+  align-items:center;
   padding:18px 28px;
   border-bottom:1px solid var(--border);
   backdrop-filter:blur(12px);
   position:sticky;
   top:0;
-  background:rgba(7,10,18,0.7);
+  background:rgba(7,10,18,0.75);
+  z-index:10;
 }
 
 .logo{
@@ -67,12 +73,13 @@ nav a:hover{opacity:1;}
 /* HERO */
 .hero{
   text-align:center;
-  padding:90px 20px 50px;
+  padding:90px 20px 60px;
 }
 
 .hero h1{
-  font-size:54px;
+  font-size:56px;
   font-weight:900;
+  line-height:1.05;
 }
 
 .hero h1 span{
@@ -87,9 +94,7 @@ nav a:hover{opacity:1;}
 }
 
 /* BUTTONS */
-.btns{
-  margin-top:20px;
-}
+.btns{margin-top:22px;}
 
 .btn{
   display:inline-block;
@@ -98,21 +103,25 @@ nav a:hover{opacity:1;}
   border-radius:10px;
   font-weight:700;
   text-decoration:none;
+  transition:.2s;
 }
 
 .primary{background:var(--accent);color:white;}
 .secondary{border:1px solid var(--border);color:var(--text);}
 
+.btn:hover{transform:translateY(-2px);}
+
 /* SECTION */
 .section{
   max-width:1100px;
   margin:auto;
-  padding:60px 20px;
+  padding:70px 20px;
 }
 
 .section h2{
   text-align:center;
   margin-bottom:30px;
+  font-size:28px;
 }
 
 /* GRID */
@@ -133,6 +142,7 @@ nav a:hover{opacity:1;}
 .card:hover{
   transform:translateY(-4px);
   border-color:var(--accent);
+  background:var(--panel2);
 }
 
 .card h3{margin-bottom:6px;}
@@ -150,12 +160,19 @@ nav a:hover{opacity:1;}
   border:1px solid var(--border);
   border-radius:14px;
   overflow:hidden;
+  transition:.2s;
+}
+
+.product:hover{
+  transform:translateY(-4px);
+  border-color:var(--accent);
 }
 
 .product img{
   width:100%;
   height:180px;
   object-fit:cover;
+  background:#111;
 }
 
 .product-body{
@@ -165,11 +182,13 @@ nav a:hover{opacity:1;}
 .price{
   color:var(--accent2);
   font-weight:800;
+  margin-top:4px;
 }
 
 .stock{
   font-size:12px;
   opacity:.7;
+  margin-top:4px;
 }
 
 button{
@@ -182,11 +201,21 @@ button{
   color:white;
   font-weight:700;
   cursor:pointer;
+  transition:.2s;
 }
+
+button:hover{opacity:.9;}
 
 button:disabled{
   background:#333;
   cursor:not-allowed;
+}
+
+/* STATES */
+.state{
+  text-align:center;
+  padding:30px;
+  opacity:.7;
 }
 
 /* FOOTER */
@@ -195,6 +224,7 @@ footer{
   padding:40px;
   opacity:.6;
   border-top:1px solid var(--border);
+  font-size:13px;
 }
 </style>
 </head>
@@ -204,17 +234,18 @@ footer{
 <nav>
   <div class="logo">Roof<span>Flow</span></div>
   <div>
+    <a href="#features">Engine</a>
     <a href="#store">Store</a>
-    <a href="#features">AI Engine</a>
     <a class="cta" href="/app.html">Launch App</a>
   </div>
 </nav>
 
 <section class="hero">
-  <h1>AI Generates <span>Roofing Leads</span></h1>
+  <h1>AI Builds <span>Roofing Revenue</span></h1>
+
   <p>
-    RoofFlow is an automation system that captures storm leads, qualifies homeowners instantly,
-    and books roofing inspections without manual follow-up.
+    RoofFlow is an autonomous roofing lead system that captures storm traffic,
+    qualifies homeowners, and books inspections without manual follow-up.
   </p>
 
   <div class="btns">
@@ -224,77 +255,117 @@ footer{
 </section>
 
 <section class="section" id="features">
-  <h2>Automation Engine</h2>
+  <h2>Autonomous Engine</h2>
 
   <div class="grid">
     <div class="card">
       <h3>Lead Capture AI</h3>
-      <p>Instantly captures inbound roofing leads from all channels.</p>
+      <p>Pulls inbound roofing demand from multiple channels in real time.</p>
     </div>
 
     <div class="card">
-      <h3>AI Qualification</h3>
-      <p>Filters serious homeowners from low-intent traffic.</p>
+      <h3>Qualification Model</h3>
+      <p>Filters high-intent homeowners using behavioral signals.</p>
     </div>
 
     <div class="card">
-      <h3>Auto Booking</h3>
-      <p>Schedules inspections automatically into your calendar.</p>
+      <h3>Auto Booking System</h3>
+      <p>Schedules inspections automatically into contractor calendars.</p>
     </div>
 
     <div class="card">
-      <h3>CRM Sync</h3>
-      <p>Connects to JobNimbus, AccuLynx, and other CRMs.</p>
+      <h3>CRM Sync Layer</h3>
+      <p>Integrates with JobNimbus, AccuLynx, and external CRMs.</p>
     </div>
   </div>
 </section>
 
 <section class="section" id="store">
-  <h2>Live System Store</h2>
-  <div id="products" class="store-grid">Loading...</div>
+  <h2>System Marketplace</h2>
+
+  <div id="products" class="store-grid">
+    <div class="state">Loading system products...</div>
+  </div>
 </section>
 
 <footer>
-  © 2026 RoofFlow — AI Roofing Automation System
+  © 2026 RoofFlow — Autonomous Roofing Intelligence System
 </footer>
 
 <script>
 const API = "https://YOUR-BACKEND.com";
 
-async function load(){
-  const res = await fetch(API + "/products");
-  const data = await res.json();
+const el = document.getElementById("products");
 
-  const el = document.getElementById("products");
+/* ───────── SAFE RENDER ───────── */
+function render(products) {
+  if (!Array.isArray(products) || products.length === 0) {
+    el.innerHTML = `<div class="state">No products available.</div>`;
+    return;
+  }
 
-  el.innerHTML = data.map(p => `
+  el.innerHTML = products.map(p => `
     <div class="product">
-      <img src="${p.image_url}" />
+      <img src="${p.image_url || ''}" alt="${p.name}" />
       <div class="product-body">
         <h3>${p.name}</h3>
-        <div class="price">$${p.price}</div>
+
+        <div class="price">$${Number(p.price).toFixed(2)}</div>
         <div class="stock">Stock: ${p.stock}</div>
 
-        <button onclick="buy('${p.sku}')" ${p.stock<=0?'disabled':''}>
-          ${p.stock<=0?'Sold Out':'Buy Now'}
+        <button onclick="buy('${p.sku}')" ${p.stock <= 0 ? "disabled" : ""}>
+          ${p.stock <= 0 ? "Sold Out" : "Buy Now"}
         </button>
       </div>
     </div>
   `).join("");
 }
 
-async function buy(sku){
-  const res = await fetch(API + "/create-checkout", {
-    method:"POST",
-    headers:{ "Content-Type":"application/json" },
-    body: JSON.stringify({ sku })
-  });
+/* ───────── LOAD PRODUCTS ───────── */
+async function loadProducts() {
+  try {
+    el.innerHTML = `<div class="state">Loading system products...</div>`;
 
-  const data = await res.json();
-  if(data.url) window.location.href = data.url;
+    const res = await fetch(`${API}/products`);
+
+    if (!res.ok) throw new Error("API failed");
+
+    const data = await res.json();
+    render(data);
+
+  } catch (err) {
+    console.error(err);
+    el.innerHTML = `<div class="state">Failed to load products.</div>`;
+  }
 }
 
-load();
+/* ───────── CHECKOUT ───────── */
+async function buy(sku) {
+  try {
+    const buttons = document.querySelectorAll("button");
+    buttons.forEach(b => b.disabled = true);
+
+    const res = await fetch(`${API}/create-checkout`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sku })
+    });
+
+    const data = await res.json();
+
+    if (!data.url) throw new Error("Checkout failed");
+
+    window.location.href = data.url;
+
+  } catch (err) {
+    console.error(err);
+    alert("Checkout failed. Try again.");
+
+    document.querySelectorAll("button").forEach(b => b.disabled = false);
+  }
+}
+
+loadProducts();
 </script>
 
 </body>
